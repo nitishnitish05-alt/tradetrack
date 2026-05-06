@@ -237,6 +237,106 @@
 
     /* ═══════════════════════════════════ PRINT ═══════════════════════════════════ */
     @page { margin: 12mm; size: A4; }
+
+    /* ═══════════════════════════════════ MOBILE ═══════════════════════════════════ */
+    @media (max-width: 640px) {
+
+      /* Login */
+      .login-card { width: 100%; max-width: 100%; border-radius: 0; padding: 40px 24px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; box-shadow: none; }
+
+      /* Topbar */
+      .topbar { padding: 0 16px; gap: 10px; height: 52px; }
+      .topbar-divider, .topbar-company, .topbar-user { display: none; }
+      .topbar-brand { font-size: 17px; }
+      .btn-logout { padding: 5px 10px; font-size: 11px; }
+
+      /* Hide top nav tabs — replaced by bottom nav */
+      .nav-tabs { display: none; }
+
+      /* Bottom Nav Bar */
+      #bottom-nav {
+        display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
+        background: white; border-top: 2px solid #e8edf3;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+        height: 60px; overflow-x: auto; scrollbar-width: none;
+      }
+      #bottom-nav::-webkit-scrollbar { display: none; }
+      .bnav-tab {
+        flex: 1; min-width: 60px; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 2px;
+        font-size: 9px; font-weight: 700; color: #94a3b8; cursor: pointer;
+        padding: 6px 4px; border-top: 2px solid transparent;
+        transition: all 0.18s; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
+      }
+      .bnav-tab .bnav-icon { font-size: 18px; line-height: 1; }
+      .bnav-tab.active { color: #1565c0; border-top-color: #1565c0; background: #f0f7ff; }
+
+      /* Main content — add bottom padding for bottom nav */
+      .main-content { padding: 16px 12px 80px 12px; }
+
+      /* Page Header */
+      .ph { margin-bottom: 16px; }
+      .ph-title { font-size: 17px; }
+
+      /* Stats — 2 columns on mobile */
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+      .stat-card { padding: 14px 16px; }
+      .stat-value { font-size: 24px; }
+      .stat-label { font-size: 10px; }
+
+      /* Cards */
+      .card { padding: 14px 12px; border-radius: 12px; }
+
+      /* Tables — horizontal scroll with touch */
+      .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+      table { font-size: 12px; min-width: 520px; }
+      thead th { padding: 8px 10px; font-size: 10px; }
+      tbody td { padding: 10px 10px; }
+
+      /* Buttons — larger touch targets */
+      .btn { padding: 9px 14px; font-size: 13px; }
+      .btn-sm { padding: 7px 10px; font-size: 11px; }
+      .btn-lg { padding: 14px; font-size: 15px; border-radius: 12px; }
+
+      /* Modal — full screen on mobile */
+      .overlay { padding: 0; align-items: flex-end; }
+      .modal {
+        border-radius: 20px 20px 0 0; max-width: 100%; width: 100%;
+        max-height: 92vh; padding: 24px 20px 32px;
+      }
+      .modal.wide { max-width: 100%; }
+      .modal-title { font-size: 16px; margin-bottom: 16px; }
+      .modal-actions { flex-direction: column-reverse; }
+      .modal-actions .btn { width: 100%; justify-content: center; padding: 12px; }
+
+      /* Form fields — bigger on mobile */
+      .mfg input, .mfg select, .mfg textarea { font-size: 16px; padding: 12px 13px; }
+      .mfg label { font-size: 11px; }
+
+      /* Delivery form */
+      .delivery-form-card { padding: 18px 14px; max-width: 100%; border-radius: 12px; }
+
+      /* Deal info box */
+      .dib-row { font-size: 12px; }
+
+      /* Deal detail modal stats */
+      .dl-header { gap: 8px; }
+      .dl-stat { min-width: 100px; padding: 10px 12px; }
+      .dl-stat-val { font-size: 15px; }
+
+      /* Filter tabs */
+      .filter-row { gap: 6px; margin-bottom: 14px; }
+      .ftab { padding: 5px 12px; font-size: 11px; }
+
+      /* Reports */
+      .report-head-title { font-size: 14px; }
+
+      /* Alert */
+      .alert { font-size: 12px; padding: 10px 14px; }
+    }
+
+    /* Show bottom nav only on mobile */
+    #bottom-nav { display: none; }
   </style>
 </head>
 <body>
@@ -284,8 +384,11 @@
     <button class="btn-logout" onclick="doLogout()">Logout</button>
   </div>
 
-  <!-- Nav Tabs -->
+  <!-- Nav Tabs (desktop) -->
   <div class="nav-tabs" id="nav-tabs"></div>
+
+  <!-- Bottom Nav Bar (mobile) -->
+  <div id="bottom-nav"></div>
 
   <!-- Panels -->
   <div class="main-content">
@@ -593,20 +696,44 @@ const OPR_TABS = [
 function buildNav() {
   const tabs = CU.role === 'admin' ? ADMIN_TABS : OPR_TABS;
   const nav = document.getElementById('nav-tabs');
+  const bnav = document.getElementById('bottom-nav');
   nav.innerHTML = '';
+  bnav.innerHTML = '';
+
+  // Mobile icon map
+  const iconMap = {
+    'dashboard': '📊', 'deals': '📝', 'suppliers': '🏭',
+    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨'
+  };
+  const shortLabel = {
+    'dashboard': 'Dashboard', 'deals': 'Deals', 'suppliers': 'Suppliers',
+    'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports'
+  };
+
   tabs.forEach((t, i) => {
+    // Desktop tab
     const el = document.createElement('div');
     el.className = 'nav-tab' + (i === 0 ? ' active' : '');
     el.textContent = t.label;
     el.dataset.tab = t.id;
     el.onclick = () => switchTab(t.id);
     nav.appendChild(el);
+
+    // Mobile bottom tab
+    const bel = document.createElement('div');
+    bel.className = 'bnav-tab' + (i === 0 ? ' active' : '');
+    bel.dataset.tab = t.id;
+    bel.innerHTML = `<span class="bnav-icon">${iconMap[t.id] || '•'}</span><span>${shortLabel[t.id] || t.id}</span>`;
+    bel.onclick = () => switchTab(t.id);
+    bnav.appendChild(bel);
   });
+
   switchTab(tabs[0].id);
 }
 
 function switchTab(id) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
+  document.querySelectorAll('.bnav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + id));
   if (id === 'dashboard') renderDashboard();
   if (id === 'deals') renderDeals();
@@ -615,6 +742,8 @@ function switchTab(id) {
   if (id === 'reports') renderReports();
   if (id === 'add-delivery') setupDeliveryForm();
   if (id === 'history') renderHistory();
+  // Scroll to top on tab switch (mobile)
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ══════════════════════════════════════════════
