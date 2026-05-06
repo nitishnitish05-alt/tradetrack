@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradeTrack – FMPL</title>
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0f2044" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TradeTrack" />
+  <meta name="application-name" content="TradeTrack" />
+  <meta name="description" content="Procurement deal & delivery tracking – FMPL" />
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
+  <style>
+    /* ═══════════════════════════════════ RESET & BASE ═══════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, sans-serif; background: #eef2f7; color: #1e293b; min-height: 100vh; }
+    button { cursor: pointer; font-family: inherit; }
+    input, select, textarea { font-family: inherit; }
+
+    /* ═══════════════════════════════════ LOGIN ═══════════════════════════════════ */
+    #login-screen {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(145deg, #0f2044 0%, #1a4080 50%, #1565c0 100%);
+      position: relative; overflow: hidden;
+    }
+    #login-screen::before {
+      content: ''; position: absolute; top: -40%; right: -20%; width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(255,255,255,0.04) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    .login-card {
+      background: white; border-radius: 20px; padding: 44px 40px; width: 380px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.35); position: relative; z-index: 1;
+    }
+    .login-brand { text-align: center; margin-bottom: 32px; }
+    .login-brand .brand-logo {
+      display: inline-flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    }
+    .brand-icon {
+      width: 44px; height: 44px; background: linear-gradient(135deg, #0f2044, #1565c0);
+      border-radius: 12px; display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+    .login-brand h1 { font-size: 28px; font-weight: 800; color: #0f2044; letter-spacing: -0.5px; }
+    .login-brand h1 span { color: #1565c0; }
+    .login-brand p { color: #94a3b8; font-size: 13px; }
+    .fg { margin-bottom: 18px; }
+    .fg label { display: block; font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .fg input {
+      width: 100%; padding: 11px 14px; border: 2px solid #e2e8f0;
+      border-radius: 10px; font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; color: #1e293b;
+    }
+    .fg input:focus { border-color: #1565c0; box-shadow: 0 0 0 3px rgba(21,101,192,0.12); }
+    .btn-login {
+      width: 100%; padding: 13px; background: linear-gradient(135deg, #0f2044, #1565c0);
+      color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: opacity 0.2s, transform 0.1s; letter-spacing: 0.3px;
+    }
+    .btn-login:hover { opacity: 0.92; }
+    .btn-login:active { transform: scale(0.99); }
+    #login-error { color: #dc2626; font-size: 13px; text-align: center; margin-top: 12px; display: none; padding: 8px; background: #fef2f2; border-radius: 8px; }
+
+    /* ═══════════════════════════════════ APP LAYOUT ═══════════════════════════════════ */
+    #app { display: none; flex-direction: column; min-height: 100vh; }
+
+    /* Topbar */
+    .topbar {
+      background: #0f2044; color: white; height: 56px;
+      display: flex; align-items: center; padding: 0 24px; gap: 16px;
+      position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+    }
+    .topbar-brand { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; }
+    .topbar-brand span { color: #60a5fa; }
+    .topbar-divider { width: 1px; height: 28px; background: rgba(255,255,255,0.12); }
+    .topbar-company { font-size: 12px; color: #94a3b8; font-weight: 500; }
+    .spacer { flex: 1; }
+    .topbar-user { font-size: 12px; color: #94a3b8; }
+    .topbar-user strong { color: #e2e8f0; font-weight: 600; }
+    .btn-logout {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+      color: #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600;
+      transition: background 0.2s;
+    }
+    .btn-logout:hover { background: rgba(255,255,255,0.16); }
+
+    /* Nav Tabs */
+    .nav-tabs {
+      background: white; border-bottom: 2px solid #e8edf3;
+      display: flex; padding: 0 24px; overflow-x: auto; gap: 4px;
+      scrollbar-width: none;
+    }
+    .nav-tabs::-webkit-scrollbar { display: none; }
+    .nav-tab {
+      padding: 14px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+      color: #64748b; border-bottom: 3px solid transparent; white-space: nowrap;
+      transition: all 0.2s; margin-bottom: -2px; display: flex; align-items: center; gap: 6px;
+    }
+    .nav-tab:hover { color: #1565c0; }
+    .nav-tab.active { color: #1565c0; border-bottom-color: #1565c0; }
+
+    /* Content */
+    .main-content { flex: 1; padding: 24px; max-width: 1280px; margin: 0 auto; width: 100%; }
+
+    /* Panels */
+    .panel { display: none; animation: fadeIn 0.2s ease; }
+    .panel.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Page Header */
+    .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
+    .ph-title { font-size: 20px; font-weight: 800; color: #0f2044; }
+    .ph-sub { font-size: 13px; color: #94a3b8; font-weight: 400; margin-top: 2px; }
+
+    /* Cards */
+    .card { background: white; border-radius: 14px; padding: 22px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+
+    /* Stats Grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-bottom: 22px; }
+    .stat-card {
+      background: white; border-radius: 14px; padding: 20px 22px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.07); border-top: 3px solid #1565c0;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .stat-card.g { border-top-color: #16a34a; }
+    .stat-card.a { border-top-color: #d97706; }
+    .stat-card.r { border-top-color: #dc2626; }
+    .stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat-value { font-size: 30px; font-weight: 900; color: #0f2044; line-height: 1; }
+    .stat-sub { font-size: 12px; color: #cbd5e1; }
+
+    /* Buttons */
+    .btn { padding: 8px 16px; border-radius: 9px; font-size: 13px; font-weight: 600; border: none; transition: all 0.18s; display: inline-flex; align-items: center; gap: 5px; }
+    .btn-blue { background: #1565c0; color: white; }
+    .btn-blue:hover { background: #1251a3; }
+    .btn-green { background: #16a34a; color: white; }
+    .btn-green:hover { background: #15803d; }
+    .btn-red { background: #dc2626; color: white; }
+    .btn-red:hover { background: #b91c1c; }
+    .btn-outline { background: white; color: #374151; border: 1.5px solid #e2e8f0; }
+    .btn-outline:hover { border-color: #1565c0; color: #1565c0; }
+    .btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 7px; }
+    .btn-lg { padding: 12px 22px; font-size: 15px; border-radius: 10px; }
+
+    /* Filter Tabs */
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; align-items: center; }
+    .ftab { padding: 6px 15px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid #e2e8f0; background: white; color: #64748b; transition: all 0.18s; }
+    .ftab.active { background: #1565c0; color: white; border-color: #1565c0; }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: #f8fafc; padding: 10px 14px; text-align: left;
+      font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase;
+      letter-spacing: 0.5px; border-bottom: 2px solid #e8edf3; white-space: nowrap;
+    }
+    tbody td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
+    tbody tr:hover { background: #f8fafc; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    /* Badges */
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+    .b-open { background: #dbeafe; color: #1d4ed8; }
+    .b-fulfilled { background: #dcfce7; color: #15803d; }
+    .b-over { background: #fee2e2; color: #b91c1c; }
+
+    /* Progress */
+    .pbar { height: 6px; background: #e8edf3; border-radius: 4px; overflow: hidden; min-width: 80px; }
+    .pfill { height: 100%; border-radius: 4px; background: #1565c0; transition: width 0.4s; }
+    .pfill.g { background: #16a34a; }
+    .pfill.r { background: #dc2626; }
+    .pct { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+    /* Modal */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(15,32,68,0.55); z-index: 200; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(2px); }
+    .overlay.open { display: flex; }
+    .modal { background: white; border-radius: 18px; padding: 28px 30px; width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(0,0,0,0.3); }
+    .modal.wide { max-width: 620px; }
+    .modal-title { font-size: 17px; font-weight: 800; color: #0f2044; margin-bottom: 22px; padding-bottom: 14px; border-bottom: 2px solid #f1f5f9; }
+    .mfg { margin-bottom: 15px; }
+    .mfg label { display: block; font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .mfg input, .mfg select, .mfg textarea {
+      width: 100%; padding: 10px 13px; border: 2px solid #e8edf3;
+      border-radius: 9px; font-size: 14px; outline: none; color: #1e293b;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .mfg input:focus, .mfg select:focus, .mfg textarea:focus { border-color: #1565c0; box-shadow: 0 0 0 3px rgba(21,101,192,0.1); }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; padding-top: 16px; border-top: 2px solid #f1f5f9; }
+
+    /* Deal Info Box */
+    .deal-info-box { background: #f0f7ff; border: 1.5px solid #bcd5f8; border-radius: 10px; padding: 14px 16px; margin-bottom: 15px; }
+    .dib-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 3px 0; }
+    .dib-label { color: #3b7dd8; font-weight: 600; }
+    .dib-val { color: #0f2044; font-weight: 700; }
+
+    /* Deal Detail View */
+    .dl-header { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+    .dl-stat { flex: 1; min-width: 120px; background: #f8fafc; border-radius: 10px; padding: 14px; }
+    .dl-stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    .dl-stat-val { font-size: 18px; font-weight: 800; color: #0f2044; }
+    .dl-deliveries { margin-top: 18px; }
+    .dl-deliveries-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #f1f5f9; }
+    .dl-item { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #f8fafc; }
+    .dl-item:last-child { border-bottom: none; }
+    .dl-dot { width: 8px; height: 8px; background: #1565c0; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+    .dl-item-main { font-size: 13px; font-weight: 600; color: #1e293b; }
+    .dl-item-sub { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+
+    /* Add Delivery Form */
+    .delivery-form-card { background: white; border-radius: 14px; padding: 28px; max-width: 540px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+    .alert { padding: 12px 16px; border-radius: 9px; font-size: 13px; margin-bottom: 14px; font-weight: 500; }
+    .alert-success { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .alert-error { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+    .alert-warn { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+    /* Reports */
+    .report-block { margin-bottom: 30px; }
+    .report-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+    .report-head-title { font-size: 16px; font-weight: 800; color: #0f2044; }
+    .total-row td { font-weight: 700; background: #f0f7ff !important; color: #0f2044; }
+
+    /* Empty State */
+    .empty { text-align: center; padding: 48px 20px; color: #94a3b8; }
+    .empty .ei { font-size: 44px; margin-bottom: 12px; }
+    .empty p { font-size: 14px; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 32px; color: #94a3b8; font-size: 14px; }
+
+    /* ═══════════════════════════════════ PRINT ═══════════════════════════════════ */
+    @page { margin: 12mm; size: A4; }
+  </style>
+</head>
+<body>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- Print iframe -->
+<iframe id="print-frame" style="display:none;width:0;height:0;border:none;"></iframe>
+
+<!-- ═══════════════════════════════════ LOGIN ═══════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="brand-logo">
+        <div class="brand-icon">📊</div>
+        <h1>Trade<span>Track</span></h1>
+      </div>
+      <p>Food Manufacturing Pvt. Ltd.</p>
+    </div>
+    <div class="fg">
+      <label>Username</label>
+      <input type="text" id="lu" placeholder="Enter your username" autocomplete="username" />
+    </div>
+    <div class="fg">
+      <label>Password</label>
+      <input type="password" id="lp" placeholder="Enter your password" autocomplete="current-password" />
+    </div>
+    <button class="btn-login" onclick="doLogin()">Login to TradeTrack</button>
+    <div id="login-error">Invalid username or password. Please try again.</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ MAIN APP ═══════════════════════════════════ -->
+<div id="app">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <span class="topbar-brand">Trade<span>Track</span></span>
+    <div class="topbar-divider"></div>
+    <span class="topbar-company">FMPL Procurement</span>
+    <div class="spacer"></div>
+    <span class="topbar-user">Logged in as <strong id="tu-name">—</strong></span>
+    <button class="btn-logout" onclick="doLogout()">Logout</button>
+  </div>
+
+  <!-- Nav Tabs -->
+  <div class="nav-tabs" id="nav-tabs"></div>
+
+  <!-- Panels -->
+  <div class="main-content">
+
+    <!-- ── DASHBOARD ── -->
+    <div class="panel" id="panel-dashboard">
+      <div class="ph">
+        <div>
+          <div class="ph-title">📊 Dashboard</div>
+          <div class="ph-sub">Overview of all procurement contracts</div>
+        </div>
+        <button class="btn btn-blue" onclick="openDealModal()">+ New Deal</button>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Open Deals</div><div class="stat-value" id="s-open">—</div><div class="stat-sub">Active contracts</div></div>
+        <div class="stat-card g"><div class="stat-label">Fulfilled</div><div class="stat-value" id="s-fulfilled">—</div><div class="stat-sub">Completed</div></div>
+        <div class="stat-card a"><div class="stat-label">Pending Value</div><div class="stat-value" id="s-value">—</div><div class="stat-sub">₹ outstanding</div></div>
+        <div class="stat-card r"><div class="stat-label">Overfulfilled</div><div class="stat-value" id="s-over">—</div><div class="stat-sub">Excess delivery</div></div>
+      </div>
+      <div class="card">
+        <div style="font-size:14px;font-weight:700;color:#0f2044;margin-bottom:16px;">Open Contracts</div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Rate</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Progress</th><th>Status</th></tr></thead>
+          <tbody id="db-tbody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ── DEALS ── -->
+    <div class="panel" id="panel-deals">
+      <div class="ph">
+        <div><div class="ph-title">📝 All Deals</div><div class="ph-sub">Manage purchase contracts</div></div>
+        <button class="btn btn-blue" onclick="openDealModal()">+ New Deal</button>
+      </div>
+      <div class="filter-row" id="deals-filter">
+        <button class="ftab active" onclick="setFilter('all',this)">All</button>
+        <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
+        <button class="ftab" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
+        <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Overfulfilled</button>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Category</th><th>Rate (₹)</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="deals-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <!-- ── SUPPLIERS ── -->
+    <div class="panel" id="panel-suppliers">
+      <div class="ph">
+        <div><div class="ph-title">🏭 Suppliers</div><div class="ph-sub">Manage your supplier master</div></div>
+        <button class="btn btn-blue" onclick="openSupModal()">+ Add Supplier</button>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Supplier Name</th><th>Contact</th><th>Address</th><th>Actions</th></tr></thead>
+        <tbody id="sup-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <!-- ── SKUs ── -->
+    <div class="panel" id="panel-skus">
+      <div class="ph">
+        <div><div class="ph-title">📦 SKUs / Products</div><div class="ph-sub">Raw materials and packaging SKUs</div></div>
+        <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>SKU Name</th><th>Category</th><th>Unit</th><th>Actions</th></tr></thead>
+        <tbody id="sku-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <!-- ── ADD DELIVERY ── -->
+    <div class="panel" id="panel-add-delivery">
+      <div class="ph"><div class="ph-title">🚚 Add Delivery</div></div>
+      <div class="delivery-form-card">
+        <div class="mfg">
+          <label>Select Open Deal</label>
+          <select id="dd-sel" onchange="onDealSel()">
+            <option value="">— Choose a Deal —</option>
+          </select>
+        </div>
+        <div id="dd-info" style="display:none;"></div>
+        <div class="mfg">
+          <label>Delivery Date</label>
+          <input type="date" id="dd-date" />
+        </div>
+        <div class="mfg">
+          <label>Quantity Received</label>
+          <input type="number" id="dd-qty" placeholder="Enter quantity" min="0.01" step="0.01" />
+        </div>
+        <div class="mfg">
+          <label>Notes (optional — vehicle no., bill no., etc.)</label>
+          <textarea id="dd-notes" rows="2" placeholder="e.g. Bill No. 1042, Vehicle HR-23-AB-1234"></textarea>
+        </div>
+        <div id="dd-alert" style="display:none;"></div>
+        <button class="btn btn-green btn-lg" style="width:100%;" onclick="submitDelivery()">✓ Record Delivery</button>
+      </div>
+    </div>
+
+    <!-- ── HISTORY ── -->
+    <div class="panel" id="panel-history">
+      <div class="ph">
+        <div><div class="ph-title">🕐 Delivery History</div><div class="ph-sub" id="history-sub">All recorded deliveries</div></div>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Contracted Rate</th><th>Qty Received</th><th>Notes</th><th>Recorded By</th></tr></thead>
+        <tbody id="hist-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <!-- ── REPORTS ── -->
+    <div class="panel" id="panel-reports">
+      <div class="ph"><div class="ph-title">🖨 Reports</div></div>
+
+      <div class="report-block">
+        <div class="report-head">
+          <div class="report-head-title">📋 Pending Contracts</div>
+          <button class="btn btn-outline" onclick="printReport('pending')">🖨 Print</button>
+        </div>
+        <div class="card"><div class="tbl-wrap"><table>
+          <thead><tr><th>Deal Date</th><th>Supplier</th><th>SKU</th><th>Rate (₹)</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Pending Value (₹)</th></tr></thead>
+          <tbody id="rpt-pending-tbody"></tbody>
+        </table></div></div>
+      </div>
+
+      <div class="report-block">
+        <div class="report-head">
+          <div class="report-head-title">✅ Fulfilled Contracts</div>
+          <button class="btn btn-outline" onclick="printReport('fulfilled')">🖨 Print</button>
+        </div>
+        <div class="card"><div class="tbl-wrap"><table>
+          <thead><tr><th>Deal Date</th><th>Supplier</th><th>SKU</th><th>Rate (₹)</th><th>Total Qty</th><th>Total Value (₹)</th><th>Status</th></tr></thead>
+          <tbody id="rpt-fulfilled-tbody"></tbody>
+        </table></div></div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /app -->
+
+<!-- ═══════════════ MODALS ═══════════════ -->
+
+<!-- Deal Modal -->
+<div class="overlay" id="modal-deal">
+  <div class="modal">
+    <div class="modal-title" id="deal-modal-title">New Deal</div>
+    <input type="hidden" id="deal-eid" />
+    <div class="mfg"><label>Deal Date *</label><input type="date" id="dm-date" /></div>
+    <div class="mfg"><label>Supplier *</label><select id="dm-sup"><option value="">— Select Supplier —</option></select></div>
+    <div class="mfg"><label>SKU / Product *</label><select id="dm-sku"><option value="">— Select SKU —</option></select></div>
+    <div class="mfg"><label>Total Quantity *</label><input type="number" id="dm-qty" placeholder="e.g. 5000" min="0.01" step="0.01" /></div>
+    <div class="mfg"><label>Rate (₹ per unit) *</label><input type="number" id="dm-rate" placeholder="e.g. 225" min="0" step="0.01" /></div>
+    <div class="mfg"><label>Notes (PO No., terms, etc.)</label><textarea id="dm-notes" rows="2" placeholder="Optional"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-deal')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveDeal()">Save Deal</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supplier Modal -->
+<div class="overlay" id="modal-sup">
+  <div class="modal">
+    <div class="modal-title" id="sup-modal-title">Add Supplier</div>
+    <input type="hidden" id="sup-eid" />
+    <div class="mfg"><label>Supplier Name *</label><input type="text" id="sm-name" placeholder="e.g. Sharma Traders" /></div>
+    <div class="mfg"><label>Contact</label><input type="text" id="sm-contact" placeholder="Phone / Email" /></div>
+    <div class="mfg"><label>Address</label><textarea id="sm-addr" rows="2" placeholder="City, State"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-sup')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveSup()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- SKU Modal -->
+<div class="overlay" id="modal-sku">
+  <div class="modal">
+    <div class="modal-title" id="sku-modal-title">Add SKU</div>
+    <input type="hidden" id="sku-eid" />
+    <div class="mfg"><label>SKU / Product Name *</label><input type="text" id="skm-name" placeholder="e.g. Shahi Masoor Dal" /></div>
+    <div class="mfg"><label>Category</label>
+      <select id="skm-cat">
+        <option value="Raw Material">Raw Material</option>
+        <option value="Packaging Material">Packaging Material</option>
+        <option value="Spices & Masala">Spices & Masala</option>
+        <option value="Oil & Fat">Oil & Fat</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="mfg"><label>Unit</label>
+      <select id="skm-unit">
+        <option value="kg">kg</option>
+        <option value="g">gram</option>
+        <option value="ltr">litre</option>
+        <option value="piece">piece</option>
+        <option value="box">box</option>
+        <option value="bag">bag</option>
+        <option value="roll">roll</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-sku')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveSku()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deal Detail Modal -->
+<div class="overlay" id="modal-detail">
+  <div class="modal wide">
+    <div class="modal-title" id="detail-title">Deal Details</div>
+    <div id="detail-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-detail')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ SCRIPT ═══════════════════════════════════ -->
+<script>
+// ══════════════════════════════════════════════
+// FIREBASE CONFIG — replace with your project
+// ══════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyBFnB45jDGENiMNK-VL3aTLYsfwslcVSWA",
+  authDomain: "tradetrack-bd536.firebaseapp.com",
+  projectId: "tradetrack-bd536",
+  storageBucket: "tradetrack-bd536.firebasestorage.app",
+  messagingSenderId: "849256051421",
+  appId: "1:849256051421:web:1d8382f9323224da552134"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let CU = null; // current user
+let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [];
+let dealsFilter = 'all';
+
+// ══════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════
+async function doLogin() {
+  const u = document.getElementById('lu').value.trim();
+  const p = document.getElementById('lp').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if (!u || !p) { errEl.textContent = 'Please enter username and password.'; errEl.style.display = 'block'; return; }
+  try {
+    const snap = await db.collection('users').where('username', '==', u).where('password', '==', p).get();
+    if (snap.empty) { errEl.textContent = 'Invalid username or password. Please try again.'; errEl.style.display = 'block'; return; }
+    CU = { id: snap.docs[0].id, ...snap.docs[0].data() };
+    document.getElementById('login-screen').style.display = 'none';
+    const appEl = document.getElementById('app');
+    appEl.style.display = 'flex';
+    document.getElementById('tu-name').textContent = CU.username + ' (' + CU.role + ')';
+    await initApp();
+  } catch(e) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+}
+document.getElementById('lp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('lu').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lp').focus(); });
+
+function doLogout() {
+  CU = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('lu').value = '';
+  document.getElementById('lp').value = '';
+}
+
+// ══════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════
+const ADMIN_TABS = [
+  { id: 'dashboard', label: '📊 Dashboard' },
+  { id: 'deals', label: '📝 Deals' },
+  { id: 'suppliers', label: '🏭 Suppliers' },
+  { id: 'skus', label: '📦 SKUs' },
+  { id: 'add-delivery', label: '🚚 Add Delivery' },
+  { id: 'history', label: '🕐 History' },
+  { id: 'reports', label: '🖨 Reports' },
+];
+const OPR_TABS = [
+  { id: 'add-delivery', label: '🚚 Add Delivery' },
+  { id: 'history', label: '🕐 My Deliveries' },
+];
+
+function buildNav() {
+  const tabs = CU.role === 'admin' ? ADMIN_TABS : OPR_TABS;
+  const nav = document.getElementById('nav-tabs');
+  nav.innerHTML = '';
+  tabs.forEach((t, i) => {
+    const el = document.createElement('div');
+    el.className = 'nav-tab' + (i === 0 ? ' active' : '');
+    el.textContent = t.label;
+    el.dataset.tab = t.id;
+    el.onclick = () => switchTab(t.id);
+    nav.appendChild(el);
+  });
+  switchTab(tabs[0].id);
+}
+
+function switchTab(id) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + id));
+  if (id === 'dashboard') renderDashboard();
+  if (id === 'deals') renderDeals();
+  if (id === 'suppliers') renderSuppliers();
+  if (id === 'skus') renderSkus();
+  if (id === 'reports') renderReports();
+  if (id === 'add-delivery') setupDeliveryForm();
+  if (id === 'history') renderHistory();
+}
+
+// ══════════════════════════════════════════════
+// INIT & DATA LOAD
+// ══════════════════════════════════════════════
+async function initApp() {
+  buildNav();
+  await loadAll();
+}
+
+async function loadAll() {
+  try {
+    const [sSnap, skSnap, dSnap, delSnap] = await Promise.all([
+      db.collection('suppliers').orderBy('name').get(),
+      db.collection('skus').orderBy('name').get(),
+      db.collection('deals').orderBy('createdAt', 'desc').get(),
+      db.collection('deliveries').orderBy('createdAt', 'desc').get()
+    ]);
+    allSuppliers  = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allSkus       = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allDeals      = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allDeliveries = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (activeTab) switchTab(activeTab.dataset.tab);
+  } catch(e) { alert('Failed to load data: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
+function fmtN(n) { return Number(n||0).toLocaleString('en-IN'); }
+function fmtQ(n) { return Number(n||0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
+function fmtD(d) { if (!d) return '—'; try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch(e) { return d; } }
+function today() { return new Date().toISOString().slice(0, 10); }
+function getSup(id) { return allSuppliers.find(s => s.id === id) || { name: '—' }; }
+function getSku(id) { return allSkus.find(s => s.id === id) || { name: '—', unit: 'kg', category: '—' }; }
+function getDels(dealId) { return allDeliveries.filter(d => d.dealId === dealId); }
+function getDelivered(dealId) { return getDels(dealId).reduce((s, d) => s + (d.qty || 0), 0); }
+
+function badge(status) {
+  if (status === 'FULFILLED')     return '<span class="badge b-fulfilled">Fulfilled</span>';
+  if (status === 'OVERFULFILLED') return '<span class="badge b-over">Overfulfilled</span>';
+  return '<span class="badge b-open">Open</span>';
+}
+function pbar(delivered, total, status) {
+  const pct = total ? Math.min((delivered / total) * 100, 100) : 0;
+  const cls = status === 'FULFILLED' ? 'g' : status === 'OVERFULFILLED' ? 'r' : '';
+  return `<div class="pbar"><div class="pfill ${cls}" style="width:${pct}%"></div></div><div class="pct">${Math.round(pct)}%</div>`;
+}
+function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" style="text-align:center;padding:32px;color:#94a3b8;">${msg}</td></tr>`; }
+
+// ══════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════
+function renderDashboard() {
+  const open = allDeals.filter(d => d.status === 'OPEN');
+  const ful  = allDeals.filter(d => d.status === 'FULFILLED');
+  const over = allDeals.filter(d => d.status === 'OVERFULFILLED');
+  const pendVal = open.reduce((s, d) => {
+    const rem = (d.totalQty || 0) - getDelivered(d.id);
+    return s + Math.max(rem, 0) * (d.rate || 0);
+  }, 0);
+  document.getElementById('s-open').textContent = open.length;
+  document.getElementById('s-fulfilled').textContent = ful.length;
+  document.getElementById('s-over').textContent = over.length;
+  document.getElementById('s-value').textContent = '₹' + fmtN(Math.round(pendVal));
+
+  const tbody = document.getElementById('db-tbody');
+  if (!open.length) { tbody.innerHTML = emptyRow(9, 'No open contracts'); return; }
+  tbody.innerHTML = open.map(deal => {
+    const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+    const delivered = getDelivered(deal.id);
+    const remaining = (deal.totalQty || 0) - delivered;
+    return `<tr>
+      <td>${fmtD(deal.dealDate)}</td>
+      <td><strong>${sup.name}</strong></td>
+      <td>${sku.name}<br><span style="font-size:11px;color:#94a3b8;">${sku.category}</span></td>
+      <td>₹${fmtN(deal.rate)}/${sku.unit||'kg'}</td>
+      <td>${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</td>
+      <td>${fmtQ(delivered)}</td>
+      <td><strong style="color:${remaining>0?'#dc2626':'#16a34a'}">${fmtQ(remaining)} ${sku.unit||'kg'}</strong></td>
+      <td>${pbar(delivered, deal.totalQty, deal.status)}</td>
+      <td>${badge(deal.status)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════
+// DEALS
+// ══════════════════════════════════════════════
+function setFilter(f, btn) {
+  dealsFilter = f;
+  document.querySelectorAll('#deals-filter .ftab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderDeals();
+}
+
+function renderDeals() {
+  let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  const tbody = document.getElementById('deals-tbody');
+  if (!deals.length) { tbody.innerHTML = emptyRow(10, 'No deals found'); return; }
+  tbody.innerHTML = deals.map(deal => {
+    const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+    const delivered = getDelivered(deal.id);
+    const remaining = (deal.totalQty || 0) - delivered;
+    return `<tr>
+      <td>${fmtD(deal.dealDate)}</td>
+      <td><strong>${sup.name}</strong></td>
+      <td>${sku.name}</td>
+      <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${sku.category}</span></td>
+      <td>₹${fmtN(deal.rate)}</td>
+      <td>${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</td>
+      <td>${fmtQ(delivered)}</td>
+      <td><strong style="color:${remaining>0?'#dc2626':'#16a34a'}">${fmtQ(remaining)}</strong></td>
+      <td>${badge(deal.status)}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="viewDeal('${deal.id}')">View</button>
+        ${deal.status==='OPEN'?`<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>`:''}
+        <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openDealModal(id) {
+  const deal = id ? allDeals.find(d => d.id === id) : null;
+  document.getElementById('deal-eid').value = id || '';
+  document.getElementById('deal-modal-title').textContent = id ? 'Edit Deal' : 'New Deal';
+  document.getElementById('dm-date').value = deal?.dealDate || today();
+  document.getElementById('dm-qty').value = deal?.totalQty || '';
+  document.getElementById('dm-rate').value = deal?.rate || '';
+  document.getElementById('dm-notes').value = deal?.notes || '';
+  // Populate dropdowns
+  const supSel = document.getElementById('dm-sup');
+  supSel.innerHTML = '<option value="">— Select Supplier —</option>' +
+    allSuppliers.map(s => `<option value="${s.id}" ${s.id===deal?.supplierId?'selected':''}>${s.name}</option>`).join('');
+  const skuSel = document.getElementById('dm-sku');
+  skuSel.innerHTML = '<option value="">— Select SKU —</option>' +
+    allSkus.map(s => `<option value="${s.id}" ${s.id===deal?.skuId?'selected':''}>${s.name} (${s.category})</option>`).join('');
+  openOverlay('modal-deal');
+}
+
+async function saveDeal() {
+  const id = document.getElementById('deal-eid').value;
+  const supplierId = document.getElementById('dm-sup').value;
+  const skuId = document.getElementById('dm-sku').value;
+  const dealDate = document.getElementById('dm-date').value;
+  const totalQty = parseFloat(document.getElementById('dm-qty').value);
+  const rate = parseFloat(document.getElementById('dm-rate').value);
+  const notes = document.getElementById('dm-notes').value.trim();
+  if (!supplierId || !skuId || !dealDate || !totalQty || !rate) { alert('Please fill all required fields (*).'); return; }
+  const data = { supplierId, skuId, dealDate, totalQty, rate, notes, status: 'OPEN', updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  try {
+    if (id) { await db.collection('deals').doc(id).update(data); }
+    else { await db.collection('deals').add({ ...data, createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp() }); }
+    closeOverlay('modal-deal');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function deleteDeal(id) {
+  const deal = allDeals.find(d => d.id === id);
+  if (!deal) return;
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  const numDels = getDels(id).length;
+  if (!confirm(`Delete deal:\n${sup.name} – ${sku.name}\n${fmtQ(deal.totalQty)} ${sku.unit||'kg'} @ ₹${deal.rate}\n\nThis will also delete ${numDels} delivery record(s). Cannot be undone.`)) return;
+  try {
+    const batch = db.batch();
+    batch.delete(db.collection('deals').doc(id));
+    getDels(id).forEach(d => batch.delete(db.collection('deliveries').doc(d.id)));
+    await batch.commit();
+    await loadAll();
+  } catch(e) { alert('Delete error: ' + e.message); }
+}
+
+function viewDeal(id) {
+  const deal = allDeals.find(d => d.id === id);
+  if (!deal) return;
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  const dels = getDels(id).sort((a, b) => a.deliveryDate > b.deliveryDate ? 1 : -1);
+  const delivered = dels.reduce((s, d) => s + d.qty, 0);
+  const remaining = (deal.totalQty || 0) - delivered;
+  const totalVal = (deal.totalQty || 0) * (deal.rate || 0);
+  const pct = deal.totalQty ? Math.min((delivered / deal.totalQty) * 100, 100) : 0;
+
+  document.getElementById('detail-title').textContent = sku.name + ' — ' + sup.name;
+  document.getElementById('detail-body').innerHTML = `
+    <div class="dl-header">
+      <div class="dl-stat"><div class="dl-stat-label">Contracted Rate</div><div class="dl-stat-val" style="color:#dc2626;">₹${fmtN(deal.rate)} / ${sku.unit||'kg'}</div></div>
+      <div class="dl-stat"><div class="dl-stat-label">Total Qty</div><div class="dl-stat-val">${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</div></div>
+      <div class="dl-stat"><div class="dl-stat-label">Delivered</div><div class="dl-stat-val">${fmtQ(delivered)}</div></div>
+      <div class="dl-stat"><div class="dl-stat-label">Remaining</div><div class="dl-stat-val" style="color:${remaining>0?'#dc2626':'#16a34a'}">${fmtQ(remaining)}</div></div>
+    </div>
+    <div style="margin-bottom:6px;font-size:12px;font-weight:600;color:#94a3b8;">Progress</div>
+    <div class="pbar" style="height:10px;margin-bottom:4px;"><div class="pfill ${deal.status==='FULFILLED'?'g':deal.status==='OVERFULFILLED'?'r':''}" style="width:${pct}%"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8;margin-bottom:16px;">
+      <span>${Math.round(pct)}% delivered</span>
+      <span>${badge(deal.status)}</span>
+    </div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:16px;background:#f8fafc;padding:10px 14px;border-radius:8px;">
+      Deal Date: <strong>${fmtD(deal.dealDate)}</strong> &nbsp;·&nbsp;
+      Total Contract Value: <strong>₹${fmtN(Math.round(totalVal))}</strong>
+      ${deal.notes ? '&nbsp;·&nbsp;Notes: <strong>' + deal.notes + '</strong>' : ''}
+    </div>
+    <div class="dl-deliveries">
+      <div class="dl-deliveries-title">Delivery Log (${dels.length} entries)</div>
+      ${dels.length ? dels.map(d => `
+        <div class="dl-item">
+          <div class="dl-dot"></div>
+          <div>
+            <div class="dl-item-main">${fmtD(d.deliveryDate)} — <span style="color:#16a34a;">+${fmtQ(d.qty)} ${sku.unit||'kg'}</span> <span style="color:#94a3b8;font-weight:400;font-size:12px;">(₹${fmtN(Math.round(d.qty * deal.rate))})</span></div>
+            <div class="dl-item-sub">${d.notes || 'No notes'} · By ${d.createdBy || '—'}</div>
+          </div>
+        </div>
+      `).join('') : '<div style="color:#94a3b8;font-size:13px;padding:10px 0;">No deliveries recorded yet.</div>'}
+    </div>
+  `;
+  openOverlay('modal-detail');
+}
+
+// ══════════════════════════════════════════════
+// SUPPLIERS
+// ══════════════════════════════════════════════
+function renderSuppliers() {
+  const tbody = document.getElementById('sup-tbody');
+  if (!allSuppliers.length) { tbody.innerHTML = emptyRow(4, 'No suppliers added yet'); return; }
+  tbody.innerHTML = allSuppliers.map(s => `<tr>
+    <td><strong>${s.name}</strong></td>
+    <td>${s.contact || '—'}</td>
+    <td>${s.address || '—'}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="openSupModal('${s.id}')">Edit</button>
+      <button class="btn btn-red btn-sm" onclick="delSup('${s.id}')">Del</button>
+    </td>
+  </tr>`).join('');
+}
+
+function openSupModal(id) {
+  const s = id ? allSuppliers.find(x => x.id === id) : null;
+  document.getElementById('sup-eid').value = id || '';
+  document.getElementById('sup-modal-title').textContent = id ? 'Edit Supplier' : 'Add Supplier';
+  document.getElementById('sm-name').value = s?.name || '';
+  document.getElementById('sm-contact').value = s?.contact || '';
+  document.getElementById('sm-addr').value = s?.address || '';
+  openOverlay('modal-sup');
+}
+
+async function saveSup() {
+  const id = document.getElementById('sup-eid').value;
+  const name = document.getElementById('sm-name').value.trim();
+  if (!name) { alert('Supplier name is required.'); return; }
+  const data = { name, contact: document.getElementById('sm-contact').value.trim(), address: document.getElementById('sm-addr').value.trim() };
+  try {
+    if (id) await db.collection('suppliers').doc(id).update(data);
+    else await db.collection('suppliers').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    closeOverlay('modal-sup');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function delSup(id) {
+  const s = allSuppliers.find(x => x.id === id);
+  if (!confirm(`Delete supplier "${s?.name}"? This does not delete associated deals.`)) return;
+  try { await db.collection('suppliers').doc(id).delete(); await loadAll(); }
+  catch(e) { alert('Delete error: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════
+// SKUs
+// ══════════════════════════════════════════════
+function renderSkus() {
+  const tbody = document.getElementById('sku-tbody');
+  if (!allSkus.length) { tbody.innerHTML = emptyRow(4, 'No SKUs added yet'); return; }
+  tbody.innerHTML = allSkus.map(s => `<tr>
+    <td><strong>${s.name}</strong></td>
+    <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${s.category}</span></td>
+    <td>${s.unit}</td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="openSkuModal('${s.id}')">Edit</button>
+      <button class="btn btn-red btn-sm" onclick="delSku('${s.id}')">Del</button>
+    </td>
+  </tr>`).join('');
+}
+
+function openSkuModal(id) {
+  const s = id ? allSkus.find(x => x.id === id) : null;
+  document.getElementById('sku-eid').value = id || '';
+  document.getElementById('sku-modal-title').textContent = id ? 'Edit SKU' : 'Add SKU';
+  document.getElementById('skm-name').value = s?.name || '';
+  document.getElementById('skm-cat').value = s?.category || 'Raw Material';
+  document.getElementById('skm-unit').value = s?.unit || 'kg';
+  openOverlay('modal-sku');
+}
+
+async function saveSku() {
+  const id = document.getElementById('sku-eid').value;
+  const name = document.getElementById('skm-name').value.trim();
+  if (!name) { alert('SKU name is required.'); return; }
+  const data = { name, category: document.getElementById('skm-cat').value, unit: document.getElementById('skm-unit').value };
+  try {
+    if (id) await db.collection('skus').doc(id).update(data);
+    else await db.collection('skus').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    closeOverlay('modal-sku');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function delSku(id) {
+  const s = allSkus.find(x => x.id === id);
+  if (!confirm(`Delete SKU "${s?.name}"?`)) return;
+  try { await db.collection('skus').doc(id).delete(); await loadAll(); }
+  catch(e) { alert('Delete error: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════
+// ADD DELIVERY
+// ══════════════════════════════════════════════
+function setupDeliveryForm() {
+  const openDeals = allDeals.filter(d => d.status === 'OPEN');
+  const sel = document.getElementById('dd-sel');
+  sel.innerHTML = '<option value="">— Choose a Deal —</option>' +
+    openDeals.map(deal => {
+      const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+      const rem = (deal.totalQty || 0) - getDelivered(deal.id);
+      return `<option value="${deal.id}">${sup.name} | ${sku.name} | Rem: ${fmtQ(rem)} ${sku.unit||'kg'} @ ₹${deal.rate}</option>`;
+    }).join('');
+  document.getElementById('dd-info').style.display = 'none';
+  document.getElementById('dd-date').value = today();
+  document.getElementById('dd-qty').value = '';
+  document.getElementById('dd-notes').value = '';
+  document.getElementById('dd-alert').style.display = 'none';
+}
+
+function onDealSel() {
+  const dealId = document.getElementById('dd-sel').value;
+  const infoEl = document.getElementById('dd-info');
+  if (!dealId) { infoEl.style.display = 'none'; return; }
+  const deal = allDeals.find(d => d.id === dealId);
+  if (!deal) return;
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  const delivered = getDelivered(deal.id);
+  const remaining = (deal.totalQty || 0) - delivered;
+  infoEl.style.display = 'block';
+  infoEl.className = 'deal-info-box';
+  infoEl.innerHTML = `
+    <div class="dib-row"><span class="dib-label">Supplier</span><span class="dib-val">${sup.name}</span></div>
+    <div class="dib-row"><span class="dib-label">SKU</span><span class="dib-val">${sku.name} (${sku.category})</span></div>
+    <div class="dib-row"><span class="dib-label">⚠ Contracted Rate</span><span class="dib-val" style="color:#dc2626;font-size:15px;">₹${fmtN(deal.rate)} / ${sku.unit||'kg'}</span></div>
+    <div class="dib-row"><span class="dib-label">Total Contracted</span><span class="dib-val">${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</span></div>
+    <div class="dib-row"><span class="dib-label">Already Delivered</span><span class="dib-val">${fmtQ(delivered)} ${sku.unit||'kg'}</span></div>
+    <div class="dib-row"><span class="dib-label">Remaining to Deliver</span><span class="dib-val" style="color:#dc2626;">${fmtQ(remaining)} ${sku.unit||'kg'}</span></div>
+  `;
+}
+
+async function submitDelivery() {
+  const dealId = document.getElementById('dd-sel').value;
+  const deliveryDate = document.getElementById('dd-date').value;
+  const qty = parseFloat(document.getElementById('dd-qty').value);
+  const notes = document.getElementById('dd-notes').value.trim();
+  if (!dealId) { showAlert('error', 'Please select a deal.'); return; }
+  if (!deliveryDate) { showAlert('error', 'Please select a delivery date.'); return; }
+  if (!qty || qty <= 0) { showAlert('error', 'Please enter a valid quantity.'); return; }
+
+  const deal = allDeals.find(d => d.id === dealId);
+  const sku = getSku(deal.skuId);
+  const delivered = getDelivered(dealId);
+  const remaining = (deal.totalQty || 0) - delivered;
+
+  let newStatus = deal.status;
+  if (qty >= remaining) {
+    if (qty > remaining) {
+      if (!confirm(`⚠ Warning: Delivery qty (${fmtQ(qty)} ${sku.unit||'kg'}) exceeds remaining contract qty (${fmtQ(remaining)} ${sku.unit||'kg'}).\n\nThis will mark the deal as OVERFULFILLED. Proceed?`)) return;
+      newStatus = 'OVERFULFILLED';
+    } else {
+      newStatus = 'FULFILLED';
+    }
+  }
+
+  try {
+    const batch = db.batch();
+    const delRef = db.collection('deliveries').doc();
+    batch.set(delRef, {
+      dealId,
+      deliveryDate,
+      qty,
+      notes,
+      supplierName: getSup(deal.supplierId).name,
+      skuName: sku.name,
+      skuUnit: sku.unit || 'kg',
+      dealRate: deal.rate,
+      createdBy: CU.username,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    if (newStatus !== deal.status) {
+      batch.update(db.collection('deals').doc(dealId), { status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    await batch.commit();
+    showAlert('success', `✓ Delivery of ${fmtQ(qty)} ${sku.unit||'kg'} recorded successfully!${newStatus === 'FULFILLED' ? ' Deal is now FULFILLED.' : newStatus === 'OVERFULFILLED' ? ' ⚠ Deal marked OVERFULFILLED.' : ''}`);
+    document.getElementById('dd-sel').value = '';
+    document.getElementById('dd-qty').value = '';
+    document.getElementById('dd-notes').value = '';
+    document.getElementById('dd-info').style.display = 'none';
+    await loadAll();
+  } catch(e) { showAlert('error', 'Error: ' + e.message); }
+}
+
+function showAlert(type, msg) {
+  const el = document.getElementById('dd-alert');
+  el.className = 'alert alert-' + (type === 'success' ? 'success' : type === 'warn' ? 'warn' : 'error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+// ══════════════════════════════════════════════
+// HISTORY
+// ══════════════════════════════════════════════
+function renderHistory() {
+  const dels = CU.role === 'admin'
+    ? allDeliveries
+    : allDeliveries.filter(d => d.createdBy === CU.username);
+  document.getElementById('history-sub').textContent = CU.role === 'admin' ? 'All recorded deliveries' : 'Your recorded deliveries';
+  const tbody = document.getElementById('hist-tbody');
+  if (!dels.length) { tbody.innerHTML = emptyRow(7, 'No deliveries recorded yet'); return; }
+  tbody.innerHTML = dels.map(d => `<tr>
+    <td>${fmtD(d.deliveryDate)}</td>
+    <td>${d.supplierName || '—'}</td>
+    <td>${d.skuName || '—'}</td>
+    <td style="font-weight:700;color:#dc2626;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</td>
+    <td><strong>${fmtQ(d.qty)} ${d.skuUnit||'kg'}</strong></td>
+    <td>${d.notes || '—'}</td>
+    <td>${d.createdBy || '—'}</td>
+  </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════
+// REPORTS
+// ══════════════════════════════════════════════
+function renderReports() {
+  // Pending
+  const pending = allDeals.filter(d => d.status === 'OPEN');
+  const pBody = document.getElementById('rpt-pending-tbody');
+  if (!pending.length) { pBody.innerHTML = emptyRow(8, 'No pending contracts'); }
+  else {
+    let total = 0;
+    pBody.innerHTML = pending.map(deal => {
+      const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+      const delivered = getDelivered(deal.id);
+      const remaining = (deal.totalQty || 0) - delivered;
+      const pVal = Math.max(remaining, 0) * (deal.rate || 0);
+      total += pVal;
+      return `<tr>
+        <td>${fmtD(deal.dealDate)}</td><td>${sup.name}</td><td>${sku.name}</td>
+        <td>₹${fmtN(deal.rate)}</td><td>${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</td>
+        <td>${fmtQ(delivered)}</td><td><strong>${fmtQ(remaining)}</strong></td>
+        <td><strong>₹${fmtN(Math.round(pVal))}</strong></td>
+      </tr>`;
+    }).join('') + `<tr class="total-row">
+      <td colspan="7" style="text-align:right;padding:10px 14px;">Total Pending Value:</td>
+      <td style="color:#dc2626;">₹${fmtN(Math.round(total))}</td>
+    </tr>`;
+  }
+
+  // Fulfilled
+  const fulfilled = allDeals.filter(d => d.status !== 'OPEN');
+  const fBody = document.getElementById('rpt-fulfilled-tbody');
+  if (!fulfilled.length) { fBody.innerHTML = emptyRow(7, 'No fulfilled contracts yet'); }
+  else {
+    let total = 0;
+    fBody.innerHTML = fulfilled.map(deal => {
+      const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+      const delivered = getDelivered(deal.id);
+      const tVal = delivered * (deal.rate || 0);
+      total += tVal;
+      return `<tr>
+        <td>${fmtD(deal.dealDate)}</td><td>${sup.name}</td><td>${sku.name}</td>
+        <td>₹${fmtN(deal.rate)}</td><td>${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</td>
+        <td><strong>₹${fmtN(Math.round(tVal))}</strong></td>
+        <td>${badge(deal.status)}</td>
+      </tr>`;
+    }).join('') + `<tr class="total-row">
+      <td colspan="5" style="text-align:right;padding:10px 14px;">Total Value Delivered:</td>
+      <td style="color:#16a34a;">₹${fmtN(Math.round(total))}</td><td></td>
+    </tr>`;
+  }
+}
+
+function printReport(type) {
+  const isPending = type === 'pending';
+  const title = isPending ? 'Pending Contracts' : 'Fulfilled Contracts';
+  const tbodyId = isPending ? 'rpt-pending-tbody' : 'rpt-fulfilled-tbody';
+  const thead = isPending
+    ? `<tr><th>Deal Date</th><th>Supplier</th><th>SKU</th><th>Rate (₹)</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Pending Value (₹)</th></tr>`
+    : `<tr><th>Deal Date</th><th>Supplier</th><th>SKU</th><th>Rate (₹)</th><th>Total Qty</th><th>Total Value (₹)</th><th>Status</th></tr>`;
+  const rows = document.getElementById(tbodyId).innerHTML;
+
+  const html = `<!DOCTYPE html><html><head><title>TradeTrack – ${title}</title><style>
+    @page { margin: 12mm; size: A4; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; font-size: 12px; color: #1a1a1a; }
+    .hdr { border-bottom: 2px solid #0f2044; padding-bottom: 10px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .hdr-left h1 { font-size: 18px; font-weight: 900; color: #0f2044; }
+    .hdr-left p { font-size: 11px; color: #555; margin-top: 2px; }
+    .hdr-right { font-size: 11px; color: #777; text-align: right; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #0f2044; color: white; padding: 7px 9px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+    td { padding: 6px 9px; border-bottom: 1px solid #e8e8e8; font-size: 11px; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .total-row td { font-weight: 700; background: #eef4ff !important; color: #0f2044; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .b-open { background: #dbeafe; color: #1d4ed8; }
+    .b-fulfilled { background: #dcfce7; color: #15803d; }
+    .b-over { background: #fee2e2; color: #b91c1c; }
+    .footer { margin-top: 14px; font-size: 10px; color: #aaa; text-align: right; }
+  </style></head><body>
+    <div class="hdr">
+      <div class="hdr-left">
+        <h1>TradeTrack — ${title}</h1>
+        <p>Food Manufacturing Pvt. Ltd. (FMPL) · Procurement Report</p>
+      </div>
+      <div class="hdr-right">
+        Printed: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}<br>
+        Generated by: ${CU?.username || '—'}
+      </div>
+    </div>
+    <table><thead>${thead}</thead><tbody>${rows}</tbody></table>
+    <div class="footer">TradeTrack · FMPL Procurement Management System</div>
+  </body></html>`;
+
+  const frame = document.getElementById('print-frame');
+  frame.contentDocument.open();
+  frame.contentDocument.write(html);
+  frame.contentDocument.close();
+  setTimeout(() => frame.contentWindow.print(), 600);
+}
+
+// ══════════════════════════════════════════════
+// MODAL HELPERS
+// ══════════════════════════════════════════════
+function openOverlay(id) { document.getElementById(id).classList.add('open'); }
+function closeOverlay(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+// ══════════════════════════════════════════════
+// SETUP USERS (run once in console if needed)
+// ══════════════════════════════════════════════
+// To create users, open browser console and run:
+// db.collection('users').add({ username: 'admin', password: 'yourpass', role: 'admin' })
+// db.collection('users').add({ username: 'operator', password: 'yourpass', role: 'operator' })
+
+// ══════════════════════════════════════════════
+// SERVICE WORKER REGISTRATION
+// ══════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('[TradeTrack] SW registered:', reg.scope))
+      .catch(err => console.warn('[TradeTrack] SW failed:', err));
+  });
+}
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+});
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  console.log('[TradeTrack] Installed as PWA');
+});
+</script>
+</body>
+</html>
