@@ -390,7 +390,7 @@
         <div><div class="ph-title">🕐 Delivery History</div><div class="ph-sub" id="history-sub">All recorded deliveries</div></div>
       </div>
       <div class="card"><div class="tbl-wrap"><table>
-        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Contracted Rate</th><th>Qty Received</th><th>Notes</th><th>Recorded By</th></tr></thead>
+        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Contracted Rate</th><th>Qty Received</th><th>Notes</th><th>Recorded By</th><th id="hist-th-actions"></th></tr></thead>
         <tbody id="hist-tbody"></tbody>
       </table></div></div>
     </div>
@@ -493,7 +493,22 @@
   </div>
 </div>
 
-<!-- Deal Detail Modal -->
+<!-- Edit Delivery Modal -->
+<div class="overlay" id="modal-edit-delivery">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit Delivery</div>
+    <input type="hidden" id="edm-id" />
+    <input type="hidden" id="edm-deal-id" />
+    <div class="deal-info-box" id="edm-info"></div>
+    <div class="mfg"><label>Delivery Date *</label><input type="date" id="edm-date" /></div>
+    <div class="mfg"><label>Quantity Received *</label><input type="number" id="edm-qty" placeholder="Enter quantity" min="0.01" step="0.01" /></div>
+    <div class="mfg"><label>Notes</label><textarea id="edm-notes" rows="2" placeholder="Bill No., Vehicle No., etc."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-edit-delivery')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveEditDelivery()">Save Changes</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="modal-detail">
   <div class="modal wide">
     <div class="modal-title" id="detail-title">Deal Details</div>
@@ -510,12 +525,12 @@
 // FIREBASE CONFIG — replace with your project
 // ══════════════════════════════════════════════
 const firebaseConfig = {
-  apiKey: "AIzaSyBFnB45jDGENiMNK-VL3aTLYsfwslcVSWA",
-  authDomain: "tradetrack-bd536.firebaseapp.com",
-  projectId: "tradetrack-bd536",
-  storageBucket: "tradetrack-bd536.firebasestorage.app",
-  messagingSenderId: "849256051421",
-  appId: "1:849256051421:web:1d8382f9323224da552134"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
@@ -1022,8 +1037,10 @@ function renderHistory() {
     ? allDeliveries
     : allDeliveries.filter(d => d.createdBy === CU.username);
   document.getElementById('history-sub').textContent = CU.role === 'admin' ? 'All recorded deliveries' : 'Your recorded deliveries';
+  const thActions = document.getElementById('hist-th-actions');
+  if (thActions) thActions.textContent = CU.role === 'admin' ? 'Actions' : '';
   const tbody = document.getElementById('hist-tbody');
-  if (!dels.length) { tbody.innerHTML = emptyRow(7, 'No deliveries recorded yet'); return; }
+  if (!dels.length) { tbody.innerHTML = emptyRow(8, 'No deliveries recorded yet'); return; }
   tbody.innerHTML = dels.map(d => `<tr>
     <td>${fmtD(d.deliveryDate)}</td>
     <td>${d.supplierName || '—'}</td>
@@ -1032,7 +1049,68 @@ function renderHistory() {
     <td><strong>${fmtQ(d.qty)} ${d.skuUnit||'kg'}</strong></td>
     <td>${d.notes || '—'}</td>
     <td>${d.createdBy || '—'}</td>
+    <td style="white-space:nowrap;">
+      ${CU.role === 'admin' ? `
+        <button class="btn btn-outline btn-sm" onclick="openEditDelivery('${d.id}')">Edit</button>
+        <button class="btn btn-red btn-sm" onclick="deleteDelivery('${d.id}')">Del</button>
+      ` : ''}
+    </td>
   </tr>`).join('');
+}
+
+async function deleteDelivery(id) {
+  const d = allDeliveries.find(x => x.id === id);
+  if (!d) return;
+  if (!confirm(`Delete delivery of ${fmtQ(d.qty)} ${d.skuUnit||'kg'} on ${fmtD(d.deliveryDate)}?\n\nThis will also recalculate the deal status. Cannot be undone.`)) return;
+  try {
+    await db.collection('deliveries').doc(id).delete();
+    // Recalculate deal status after deletion
+    await recalcDealStatus(d.dealId);
+    await loadAll();
+  } catch(e) { alert('Delete error: ' + e.message); }
+}
+
+function openEditDelivery(id) {
+  const d = allDeliveries.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('edm-id').value = id;
+  document.getElementById('edm-deal-id').value = d.dealId;
+  document.getElementById('edm-date').value = d.deliveryDate;
+  document.getElementById('edm-qty').value = d.qty;
+  document.getElementById('edm-notes').value = d.notes || '';
+  // Info box
+  document.getElementById('edm-info').innerHTML = `
+    <div class="dib-row"><span class="dib-label">Supplier</span><span class="dib-val">${d.supplierName || '—'}</span></div>
+    <div class="dib-row"><span class="dib-label">SKU</span><span class="dib-val">${d.skuName || '—'}</span></div>
+    <div class="dib-row"><span class="dib-label">Contracted Rate</span><span class="dib-val" style="color:#dc2626;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</span></div>
+  `;
+  openOverlay('modal-edit-delivery');
+}
+
+async function saveEditDelivery() {
+  const id = document.getElementById('edm-id').value;
+  const dealId = document.getElementById('edm-deal-id').value;
+  const deliveryDate = document.getElementById('edm-date').value;
+  const qty = parseFloat(document.getElementById('edm-qty').value);
+  const notes = document.getElementById('edm-notes').value.trim();
+  if (!deliveryDate || !qty || qty <= 0) { alert('Please fill delivery date and quantity.'); return; }
+  try {
+    await db.collection('deliveries').doc(id).update({ deliveryDate, qty, notes, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: CU.username });
+    await recalcDealStatus(dealId);
+    closeOverlay('modal-edit-delivery');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function recalcDealStatus(dealId) {
+  // Re-fetch deliveries for this deal and recalculate status
+  const snap = await db.collection('deliveries').where('dealId', '==', dealId).get();
+  const totalDelivered = snap.docs.reduce((s, d) => s + (d.data().qty || 0), 0);
+  const deal = allDeals.find(d => d.id === dealId);
+  if (!deal) return;
+  let newStatus = 'OPEN';
+  if (totalDelivered >= deal.totalQty) newStatus = totalDelivered > deal.totalQty ? 'OVERFULFILLED' : 'FULFILLED';
+  await db.collection('deals').doc(dealId).update({ status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
 }
 
 // ══════════════════════════════════════════════
