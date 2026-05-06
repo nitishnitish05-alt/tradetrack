@@ -249,7 +249,7 @@
     @page { margin: 12mm; size: A4; }
 
     /* ═══════════════════════════════════ MOBILE ═══════════════════════════════════ */
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
 
       /* Login */
       .login-card { width: 100%; max-width: 100%; border-radius: 16px; padding: 36px 24px; margin: 16px; width: calc(100% - 32px); box-shadow: 0 8px 40px rgba(0,0,0,0.25); }
@@ -265,10 +265,11 @@
 
       /* Bottom Nav Bar */
       #bottom-nav {
-        display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
+        display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
         background: white; border-top: 2px solid #e8edf3;
         box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
         height: 60px; overflow-x: auto; scrollbar-width: none;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
       }
       #bottom-nav::-webkit-scrollbar { display: none; }
       .bnav-tab {
