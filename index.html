@@ -542,6 +542,18 @@
       </div>
     </div>
 
+    <!-- ── USERS ── -->
+    <div class="panel" id="panel-users">
+      <div class="ph">
+        <div><div class="ph-title">👥 User Management</div><div class="ph-sub">Admin only — manage app users</div></div>
+        <button class="btn btn-blue" onclick="openUserModal()">+ Add User</button>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead>
+        <tbody id="users-tbody"></tbody>
+      </table></div></div>
+    </div>
+
   </div><!-- /main-content -->
 </div><!-- /app -->
 
@@ -613,7 +625,30 @@
   </div>
 </div>
 
-<!-- Edit Delivery Modal -->
+<!-- User Modal -->
+<div class="overlay" id="modal-user">
+  <div class="modal">
+    <div class="modal-title" id="user-modal-title">Add User</div>
+    <input type="hidden" id="um-id" />
+    <div class="mfg"><label>Username *</label><input type="text" id="um-username" placeholder="e.g. ravi_operator" autocomplete="off" /></div>
+    <div class="mfg"><label>Password *</label>
+      <div class="fg-pw" style="position:relative;">
+        <input type="password" id="um-password" placeholder="Set password" autocomplete="new-password" style="width:100%;padding:10px 44px 10px 13px;border:2px solid #e8edf3;border-radius:9px;font-size:14px;outline:none;color:#1e293b;" />
+        <button class="pw-toggle" type="button" onclick="toggleUmPw()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:#94a3b8;">👁</button>
+      </div>
+    </div>
+    <div class="mfg"><label>Role *</label>
+      <select id="um-role">
+        <option value="operator">Operator</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-user')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveUser()">Save User</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="modal-edit-delivery">
   <div class="modal">
     <div class="modal-title">✏️ Edit Delivery</div>
@@ -659,7 +694,7 @@ const db = firebase.firestore();
 // STATE
 // ══════════════════════════════════════════════
 let CU = null; // current user
-let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [];
+let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
 let dealsFilter = 'all';
 
 // ══════════════════════════════════════════════
@@ -716,6 +751,7 @@ const ADMIN_TABS = [
   { id: 'add-delivery', label: '🚚 Add Delivery' },
   { id: 'history', label: '🕐 History' },
   { id: 'reports', label: '🖨 Reports' },
+  { id: 'users', label: '👥 Users' },
 ];
 const OPR_TABS = [
   { id: 'add-delivery', label: '🚚 Add Delivery' },
@@ -732,11 +768,11 @@ function buildNav() {
   // Mobile icon map
   const iconMap = {
     'dashboard': '📊', 'deals': '📝', 'suppliers': '🏭',
-    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨'
+    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨', 'users': '👥'
   };
   const shortLabel = {
     'dashboard': 'Dashboard', 'deals': 'Deals', 'suppliers': 'Suppliers',
-    'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports'
+    'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports', 'users': 'Users'
   };
 
   tabs.forEach((t, i) => {
@@ -771,6 +807,7 @@ function switchTab(id) {
   if (id === 'reports') renderReports();
   if (id === 'add-delivery') setupDeliveryForm();
   if (id === 'history') renderHistory();
+  if (id === 'users') renderUsers();
   // Scroll to top on tab switch (mobile)
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -785,16 +822,18 @@ async function initApp() {
 
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap] = await Promise.all([
+    const [sSnap, skSnap, dSnap, delSnap, uSnap] = await Promise.all([
       db.collection('suppliers').orderBy('name').get(),
       db.collection('skus').orderBy('name').get(),
       db.collection('deals').orderBy('createdAt', 'desc').get(),
-      db.collection('deliveries').orderBy('createdAt', 'desc').get()
+      db.collection('deliveries').orderBy('createdAt', 'desc').get(),
+      db.collection('users').orderBy('username').get()
     ]);
     allSuppliers  = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allSkus       = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allDeals      = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allDeliveries = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allUsers      = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const activeTab = document.querySelector('.nav-tab.active');
     if (activeTab) switchTab(activeTab.dataset.tab);
   } catch(e) { alert('Failed to load data: ' + e.message); }
@@ -1387,6 +1426,72 @@ document.querySelectorAll('.overlay').forEach(o => {
 // To create users, open browser console and run:
 // db.collection('users').add({ username: 'admin', password: 'yourpass', role: 'admin' })
 // db.collection('users').add({ username: 'operator', password: 'yourpass', role: 'operator' })
+
+// ══════════════════════════════════════════════
+// USERS
+// ══════════════════════════════════════════════
+function renderUsers() {
+  const tbody = document.getElementById('users-tbody');
+  if (!allUsers.length) { tbody.innerHTML = emptyRow(3, 'No users found'); return; }
+  tbody.innerHTML = allUsers.map(u => `<tr>
+    <td><strong>${u.username}</strong></td>
+    <td><span class="badge ${u.role === 'admin' ? 'b-open' : 'b-fulfilled'}">${u.role}</span></td>
+    <td style="white-space:nowrap;">
+      <button class="btn btn-outline btn-sm" onclick="openUserModal('${u.id}')">Edit</button>
+      ${u.id !== CU.id
+        ? `<button class="btn btn-red btn-sm" onclick="deleteUser('${u.id}','${u.username}')">Del</button>`
+        : `<span style="font-size:11px;color:#94a3b8;margin-left:6px;">(you)</span>`}
+    </td>
+  </tr>`).join('');
+}
+
+function openUserModal(id) {
+  const u = id ? allUsers.find(x => x.id === id) : null;
+  document.getElementById('um-id').value = id || '';
+  document.getElementById('user-modal-title').textContent = id ? 'Edit User' : 'Add User';
+  document.getElementById('um-username').value = u?.username || '';
+  document.getElementById('um-password').value = '';
+  document.getElementById('um-role').value = u?.role || 'operator';
+  openOverlay('modal-user');
+}
+
+async function saveUser() {
+  const id = document.getElementById('um-id').value;
+  const username = document.getElementById('um-username').value.trim();
+  const password = document.getElementById('um-password').value;
+  const role = document.getElementById('um-role').value;
+  if (!username) { alert('Username is required.'); return; }
+  if (!id && !password) { alert('Password is required for new users.'); return; }
+
+  // Check for duplicate username
+  const duplicate = allUsers.find(u => u.username === username && u.id !== id);
+  if (duplicate) { alert(`Username "${username}" already exists. Please choose a different one.`); return; }
+
+  try {
+    if (id) {
+      const data = { username, role };
+      if (password) data.password = password; // only update password if filled
+      await db.collection('users').doc(id).update(data);
+    } else {
+      await db.collection('users').add({ username, password, role, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+    closeOverlay('modal-user');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm(`Delete user "${username}"?\n\nThis cannot be undone. The user will immediately lose access.`)) return;
+  try {
+    await db.collection('users').doc(id).delete();
+    await loadAll();
+  } catch(e) { alert('Delete error: ' + e.message); }
+}
+
+function toggleUmPw() {
+  const inp = document.getElementById('um-password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
 
 // ══════════════════════════════════════════════
 // SERVICE WORKER REGISTRATION
