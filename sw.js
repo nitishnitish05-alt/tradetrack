@@ -3,8 +3,8 @@
 // FMPL Procurement Management System
 // ═══════════════════════════════════════════════════════
 
-const CACHE_NAME = 'tradetrack-v1';
-const FIREBASE_CACHE = 'tradetrack-firebase-v1';
+const CACHE_NAME = 'tradetrack-v2';
+const FIREBASE_CACHE = 'tradetrack-firebase-v2';
 
 // Files to cache for offline shell
 const SHELL_FILES = [
