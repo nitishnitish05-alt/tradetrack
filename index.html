@@ -245,6 +245,13 @@
     /* Loading */
     .loading { text-align: center; padding: 32px; color: #94a3b8; font-size: 14px; }
 
+    /* Bulk Deal Line Items */
+    .bulk-line { display:flex; gap:8px; align-items:flex-end; margin-bottom:10px; padding:12px; background:#f8fafc; border-radius:10px; border:1.5px solid #e8edf3; flex-wrap:wrap; }
+    .bulk-line .mfg { margin-bottom:0; flex:1; min-width:120px; }
+    .bulk-line .mfg input, .bulk-line .mfg select { font-size:13px; padding:8px 10px; }
+    .bulk-line-del { background:#fee2e2; border:none; color:#dc2626; border-radius:8px; padding:8px 10px; cursor:pointer; font-size:16px; flex-shrink:0; transition:background 0.2s; }
+    .bulk-line-del:hover { background:#fecaca; }
+
     /* ═══════════════════════════════════ PRINT ═══════════════════════════════════ */
     @page { margin: 12mm; size: A4; }
 
@@ -417,7 +424,10 @@
           <div class="ph-title">📊 Dashboard</div>
           <div class="ph-sub">Overview of all procurement contracts</div>
         </div>
-        <button class="btn btn-blue" onclick="openDealModal()">+ New Deal</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="openBulkDealModal()">+ Bulk Deal</button>
+          <button class="btn btn-blue" onclick="openDealModal()">+ Single Deal</button>
+        </div>
       </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-label">Open Deals</div><div class="stat-value" id="s-open">—</div><div class="stat-sub">Active contracts</div></div>
@@ -426,7 +436,15 @@
         <div class="stat-card r"><div class="stat-label">Overfulfilled</div><div class="stat-value" id="s-over">—</div><div class="stat-sub">Excess delivery</div></div>
       </div>
       <div class="card">
-        <div style="font-size:14px;font-weight:700;color:#0f2044;margin-bottom:16px;">Open Contracts</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+          <div style="font-size:14px;font-weight:700;color:#0f2044;">Open Contracts</div>
+          <div class="filter-row" style="margin-bottom:0;">
+            <span style="font-size:11px;color:#94a3b8;font-weight:600;">SORT:</span>
+            <button class="ftab active" id="dbs-date" onclick="setDbSort('date',this)">Date</button>
+            <button class="ftab" id="dbs-supplier" onclick="setDbSort('supplier',this)">Supplier</button>
+            <button class="ftab" id="dbs-sku" onclick="setDbSort('sku',this)">SKU</button>
+          </div>
+        </div>
         <div class="tbl-wrap"><table>
           <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Rate</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Progress</th><th>Status</th></tr></thead>
           <tbody id="db-tbody"></tbody>
@@ -438,13 +456,24 @@
     <div class="panel" id="panel-deals">
       <div class="ph">
         <div><div class="ph-title">📝 All Deals</div><div class="ph-sub">Manage purchase contracts</div></div>
-        <button class="btn btn-blue" onclick="openDealModal()">+ New Deal</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="openBulkDealModal()">+ Bulk Deal</button>
+          <button class="btn btn-blue" onclick="openDealModal()">+ Single Deal</button>
+        </div>
       </div>
-      <div class="filter-row" id="deals-filter">
-        <button class="ftab active" onclick="setFilter('all',this)">All</button>
-        <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
-        <button class="ftab" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
-        <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Overfulfilled</button>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
+        <div class="filter-row" id="deals-filter" style="margin-bottom:0;">
+          <button class="ftab active" onclick="setFilter('all',this)">All</button>
+          <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
+          <button class="ftab" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
+          <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Overfulfilled</button>
+        </div>
+        <div class="filter-row" style="margin-bottom:0;">
+          <span style="font-size:11px;color:#94a3b8;font-weight:600;">SORT:</span>
+          <button class="ftab active" id="ds-date" onclick="setDealsSort('date',this)">Date</button>
+          <button class="ftab" id="ds-supplier" onclick="setDealsSort('supplier',this)">Supplier</button>
+          <button class="ftab" id="ds-sku" onclick="setDealsSort('sku',this)">SKU</button>
+        </div>
       </div>
       <div class="card"><div class="tbl-wrap"><table>
         <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Category</th><th>Rate (₹)</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Status</th><th>Actions</th></tr></thead>
@@ -614,7 +643,36 @@
 
 <!-- ═══════════════ MODALS ═══════════════ -->
 
-<!-- Deal Modal -->
+<!-- Bulk Deal Modal -->
+<div class="overlay" id="modal-bulk-deal">
+  <div class="modal wide" style="max-width:680px;">
+    <div class="modal-title">📦 New Bulk Deal — Multiple SKUs</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+      <div class="mfg" style="flex:1;min-width:180px;margin-bottom:0;">
+        <label>Deal Date *</label>
+        <input type="date" id="bdm-date" />
+      </div>
+      <div class="mfg" style="flex:2;min-width:200px;margin-bottom:0;">
+        <label>Supplier *</label>
+        <select id="bdm-sup"><option value="">— Select Supplier —</option></select>
+      </div>
+    </div>
+    <div class="mfg"><label>Notes (PO No., terms, etc.)</label>
+      <input type="text" id="bdm-notes" placeholder="Optional — applies to all line items" />
+    </div>
+    <!-- Line Items -->
+    <div style="font-size:12px;font-weight:700;color:#0f2044;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.4px;">SKU Line Items</div>
+    <div id="bulk-lines"></div>
+    <button class="btn btn-outline" style="width:100%;margin-bottom:16px;padding:10px;" onclick="addBulkLine()">+ Add SKU Row</button>
+    <div id="bdm-alert" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-bulk-deal')">Cancel</button>
+      <button class="btn btn-green" onclick="saveBulkDeal()">💾 Save All Deals</button>
+    </div>
+  </div>
+</div>
+
+<!-- Deal Modal (single / edit) -->
 <div class="overlay" id="modal-deal">
   <div class="modal">
     <div class="modal-title" id="deal-modal-title">New Deal</div>
@@ -785,6 +843,7 @@ let CU = null;
 let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
 let allStockOpening = [], allStockIssues = [];
 let dealsFilter = 'all';
+let dbSort = 'date', dealsSort = 'date'; // sort state
 
 // ══════════════════════════════════════════════
 // AUTH
@@ -965,6 +1024,36 @@ function pbar(delivered, total, status) {
 function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" style="text-align:center;padding:32px;color:#94a3b8;">${msg}</td></tr>`; }
 
 // ══════════════════════════════════════════════
+// SORT HELPERS
+// ══════════════════════════════════════════════
+function sortDeals(deals, sortKey) {
+  return [...deals].sort((a, b) => {
+    if (sortKey === 'supplier') {
+      return (getSup(a.supplierId).name || '').localeCompare(getSup(b.supplierId).name || '');
+    }
+    if (sortKey === 'sku') {
+      return (getSku(a.skuId).name || '').localeCompare(getSku(b.skuId).name || '');
+    }
+    // Default: date desc
+    return (b.dealDate || '') > (a.dealDate || '') ? 1 : -1;
+  });
+}
+
+function setDbSort(key, btn) {
+  dbSort = key;
+  document.querySelectorAll('[id^="dbs-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderDashboard();
+}
+
+function setDealsSort(key, btn) {
+  dealsSort = key;
+  document.querySelectorAll('[id^="ds-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderDeals();
+}
+
+// ══════════════════════════════════════════════
 // DASHBOARD
 // ══════════════════════════════════════════════
 function renderDashboard() {
@@ -980,9 +1069,10 @@ function renderDashboard() {
   document.getElementById('s-over').textContent = over.length;
   document.getElementById('s-value').textContent = '₹' + fmtN(Math.round(pendVal));
 
+  const sorted = sortDeals(open, dbSort);
   const tbody = document.getElementById('db-tbody');
-  if (!open.length) { tbody.innerHTML = emptyRow(9, 'No open contracts'); return; }
-  tbody.innerHTML = open.map(deal => {
+  if (!sorted.length) { tbody.innerHTML = emptyRow(9, 'No open contracts'); return; }
+  tbody.innerHTML = sorted.map(deal => {
     const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
     const remaining = (deal.totalQty || 0) - delivered;
@@ -1012,6 +1102,7 @@ function setFilter(f, btn) {
 
 function renderDeals() {
   let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  deals = sortDeals(deals, dealsSort);
   const tbody = document.getElementById('deals-tbody');
   if (!deals.length) { tbody.innerHTML = emptyRow(10, 'No deals found'); return; }
   tbody.innerHTML = deals.map(deal => {
@@ -1035,6 +1126,119 @@ function renderDeals() {
       </td>
     </tr>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════
+// BULK DEAL
+// ══════════════════════════════════════════════
+let bulkLineCount = 0;
+
+function openBulkDealModal() {
+  bulkLineCount = 0;
+  document.getElementById('bdm-date').value = today();
+  document.getElementById('bdm-notes').value = '';
+  const supSel = document.getElementById('bdm-sup');
+  supSel.innerHTML = '<option value="">— Select Supplier —</option>' +
+    allSuppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('bulk-lines').innerHTML = '';
+  document.getElementById('bdm-alert').style.display = 'none';
+  addBulkLine(); // start with one row
+  openOverlay('modal-bulk-deal');
+}
+
+function addBulkLine() {
+  bulkLineCount++;
+  const id = bulkLineCount;
+  const skuOptions = allSkus.map(s => `<option value="${s.id}">${s.name} (${s.unit})</option>`).join('');
+  const line = document.createElement('div');
+  line.className = 'bulk-line';
+  line.id = `bulk-line-${id}`;
+  line.innerHTML = `
+    <div class="mfg" style="flex:3;min-width:160px;">
+      <label>SKU *</label>
+      <select id="bl-sku-${id}"><option value="">— Select SKU —</option>${skuOptions}</select>
+    </div>
+    <div class="mfg" style="flex:2;min-width:100px;">
+      <label>Quantity *</label>
+      <input type="number" id="bl-qty-${id}" placeholder="Qty" min="0.01" step="0.01" />
+    </div>
+    <div class="mfg" style="flex:2;min-width:100px;">
+      <label>Rate (₹) *</label>
+      <input type="number" id="bl-rate-${id}" placeholder="Rate" min="0" step="0.01" />
+    </div>
+    <button class="bulk-line-del" onclick="removeBulkLine(${id})" title="Remove row">✕</button>
+  `;
+  document.getElementById('bulk-lines').appendChild(line);
+}
+
+function removeBulkLine(id) {
+  const el = document.getElementById(`bulk-line-${id}`);
+  if (el) el.remove();
+  // ensure at least one row
+  if (!document.querySelectorAll('.bulk-line').length) addBulkLine();
+}
+
+async function saveBulkDeal() {
+  const supplierId = document.getElementById('bdm-sup').value;
+  const dealDate   = document.getElementById('bdm-date').value;
+  const notes      = document.getElementById('bdm-notes').value.trim();
+  const alertEl    = document.getElementById('bdm-alert');
+  alertEl.style.display = 'none';
+
+  if (!supplierId || !dealDate) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Please select a supplier and deal date.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  // Collect all line items
+  const lines = [];
+  document.querySelectorAll('.bulk-line').forEach(row => {
+    const lid  = row.id.replace('bulk-line-', '');
+    const skuId = document.getElementById(`bl-sku-${lid}`)?.value;
+    const qty  = parseFloat(document.getElementById(`bl-qty-${lid}`)?.value);
+    const rate = parseFloat(document.getElementById(`bl-rate-${lid}`)?.value);
+    if (skuId && qty > 0 && rate >= 0) lines.push({ skuId, qty, rate });
+  });
+
+  if (!lines.length) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Please add at least one valid SKU line item.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  // Check for duplicate SKUs in same bulk deal
+  const skuIds = lines.map(l => l.skuId);
+  if (new Set(skuIds).size !== skuIds.length) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Duplicate SKU found. Each SKU can only appear once per bulk deal.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    const batch = db.batch();
+    lines.forEach(line => {
+      const ref = db.collection('deals').doc();
+      batch.set(ref, {
+        supplierId, skuId: line.skuId, dealDate,
+        totalQty: line.qty, rate: line.rate,
+        notes, status: 'OPEN',
+        createdBy: CU.username,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    closeOverlay('modal-bulk-deal');
+    await loadAll();
+  } catch(e) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Save error: ' + e.message;
+    alertEl.style.display = 'block';
+  }
 }
 
 function openDealModal(id) {
