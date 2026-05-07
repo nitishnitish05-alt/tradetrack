@@ -542,6 +542,61 @@
       </div>
     </div>
 
+    <!-- ── STOCK (ADMIN) ── -->
+    <div class="panel" id="panel-stock">
+      <div class="ph">
+        <div><div class="ph-title">📦 Stock Ledger</div><div class="ph-sub">Raw material stock management</div></div>
+      </div>
+      <!-- Stock Sub-tabs -->
+      <div class="filter-row" id="stock-subtabs">
+        <button class="ftab active" onclick="renderStock('current',this)">📊 Current Stock</button>
+        <button class="ftab" onclick="renderStock('set-opening',this)">⚙ Set Opening Stock</button>
+        <button class="ftab" onclick="renderStock('issue-history',this)">📋 Issue History</button>
+        <button class="ftab" onclick="renderStock('ledger',this)">📒 SKU Ledger</button>
+      </div>
+      <div id="stock-content"></div>
+    </div>
+
+    <!-- ── OPERATOR: TODAY'S DELIVERIES ── -->
+    <div class="panel" id="panel-opr-history">
+      <div class="ph">
+        <div><div class="ph-title">📋 Today's Deliveries</div><div class="ph-sub" id="opr-history-sub"></div></div>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Rate</th><th>Qty</th><th>Notes</th></tr></thead>
+        <tbody id="opr-hist-tbody"></tbody>
+      </table></div></div>
+    </div>
+
+    <!-- ── ISSUE TO PRODUCTION ── -->
+    <div class="panel" id="panel-issue-production">
+      <div class="ph"><div class="ph-title">🏭 Issue to Production</div></div>
+      <div class="delivery-form-card">
+        <div class="mfg"><label>Issue Date *</label><input type="date" id="ip-date" /></div>
+        <div class="mfg"><label>Select SKU *</label>
+          <select id="ip-sku" onchange="onIssueSkuSel()">
+            <option value="">— Choose SKU —</option>
+          </select>
+        </div>
+        <div id="ip-stock-info" style="display:none;"></div>
+        <div class="mfg"><label>Quantity Issued *</label><input type="number" id="ip-qty" placeholder="Enter qty issued to production" min="0.01" step="0.01" /></div>
+        <div class="mfg"><label>Notes (Batch No., Shift, etc.)</label><textarea id="ip-notes" rows="2" placeholder="Optional"></textarea></div>
+        <div id="ip-alert" style="display:none;"></div>
+        <button class="btn btn-green btn-lg" style="width:100%;" onclick="submitIssue()">✓ Record Issue</button>
+      </div>
+    </div>
+
+    <!-- ── OPERATOR: TODAY'S ISSUES ── -->
+    <div class="panel" id="panel-opr-issues">
+      <div class="ph">
+        <div><div class="ph-title">📋 Today's Issues</div><div class="ph-sub" id="opr-issues-sub"></div></div>
+      </div>
+      <div class="card"><div class="tbl-wrap"><table>
+        <thead><tr><th>Date</th><th>SKU</th><th>Qty Issued</th><th>Notes</th><th>By</th></tr></thead>
+        <tbody id="opr-issues-tbody"></tbody>
+      </table></div></div>
+    </div>
+
     <!-- ── USERS ── -->
     <div class="panel" id="panel-users">
       <div class="ph">
@@ -625,6 +680,39 @@
   </div>
 </div>
 
+<!-- Opening Stock Modal -->
+<div class="overlay" id="modal-opening">
+  <div class="modal">
+    <div class="modal-title">⚙ Set Opening Stock</div>
+    <div class="alert alert-warn" style="display:block;margin-bottom:14px;">⚠ This resets the stock base for this SKU. All calculations will use this as the new starting point.</div>
+    <div class="mfg"><label>SKU *</label>
+      <select id="os-sku"><option value="">— Select SKU —</option></select>
+    </div>
+    <div class="mfg"><label>Opening Date *</label><input type="date" id="os-date" /></div>
+    <div class="mfg"><label>Opening Quantity *</label><input type="number" id="os-qty" placeholder="Physical stock count" min="0" step="0.01" /></div>
+    <div class="mfg"><label>Notes (optional)</label><textarea id="os-notes" rows="2" placeholder="e.g. Monthly physical count"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-opening')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveOpeningStock()">Set Opening Stock</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Issue Modal -->
+<div class="overlay" id="modal-edit-issue">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit Issue</div>
+    <input type="hidden" id="ei-id" />
+    <div class="mfg"><label>Issue Date *</label><input type="date" id="ei-date" /></div>
+    <div class="mfg"><label>Quantity *</label><input type="number" id="ei-qty" min="0.01" step="0.01" /></div>
+    <div class="mfg"><label>Notes</label><textarea id="ei-notes" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-edit-issue')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveEditIssue()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- User Modal -->
 <div class="overlay" id="modal-user">
   <div class="modal">
@@ -693,8 +781,9 @@ const db = firebase.firestore();
 // ══════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════
-let CU = null; // current user
+let CU = null;
 let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
+let allStockOpening = [], allStockIssues = [];
 let dealsFilter = 'all';
 
 // ══════════════════════════════════════════════
@@ -751,11 +840,14 @@ const ADMIN_TABS = [
   { id: 'add-delivery', label: '🚚 Add Delivery' },
   { id: 'history', label: '🕐 History' },
   { id: 'reports', label: '🖨 Reports' },
+  { id: 'stock', label: '📦 Stock' },
   { id: 'users', label: '👥 Users' },
 ];
 const OPR_TABS = [
   { id: 'add-delivery', label: '🚚 Add Delivery' },
-  { id: 'history', label: '🕐 My Deliveries' },
+  { id: 'opr-history', label: '📋 Today\'s Deliveries' },
+  { id: 'issue-production', label: '🏭 Issue to Production' },
+  { id: 'opr-issues', label: '📋 Today\'s Issues' },
 ];
 
 function buildNav() {
@@ -768,11 +860,13 @@ function buildNav() {
   // Mobile icon map
   const iconMap = {
     'dashboard': '📊', 'deals': '📝', 'suppliers': '🏭',
-    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨', 'users': '👥'
+    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨',
+    'stock': '📦', 'users': '👥', 'opr-history': '📋', 'issue-production': '🏭', 'opr-issues': '📋'
   };
   const shortLabel = {
     'dashboard': 'Dashboard', 'deals': 'Deals', 'suppliers': 'Suppliers',
-    'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports', 'users': 'Users'
+    'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports',
+    'stock': 'Stock', 'users': 'Users', 'opr-history': 'Deliveries', 'issue-production': 'Issue', 'opr-issues': 'Issues'
   };
 
   tabs.forEach((t, i) => {
@@ -808,7 +902,10 @@ function switchTab(id) {
   if (id === 'add-delivery') setupDeliveryForm();
   if (id === 'history') renderHistory();
   if (id === 'users') renderUsers();
-  // Scroll to top on tab switch (mobile)
+  if (id === 'stock') renderStock('current');
+  if (id === 'opr-history') renderOprHistory();
+  if (id === 'issue-production') setupIssueForm();
+  if (id === 'opr-issues') renderOprIssues();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -822,19 +919,23 @@ async function initApp() {
 
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap, uSnap] = await Promise.all([
+    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap] = await Promise.all([
       db.collection('suppliers').orderBy('name').get(),
       db.collection('skus').orderBy('name').get(),
       db.collection('deals').orderBy('createdAt', 'desc').get(),
       db.collection('deliveries').orderBy('createdAt', 'desc').get(),
-      db.collection('users').orderBy('username').get()
+      db.collection('users').orderBy('username').get(),
+      db.collection('stock_opening').orderBy('date', 'desc').get(),
+      db.collection('stock_issues').orderBy('date', 'desc').get()
     ]);
-    allSuppliers  = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allSkus       = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allDeals      = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allDeliveries = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allUsers      = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const activeTab = document.querySelector('.nav-tab.active');
+    allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allDeals        = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allDeliveries   = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allUsers        = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allStockOpening = soSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allStockIssues  = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const activeTab = document.querySelector('.nav-tab.active') || document.querySelector('.bnav-tab.active');
     if (activeTab) switchTab(activeTab.dataset.tab);
   } catch(e) { alert('Failed to load data: ' + e.message); }
 }
@@ -1426,6 +1527,329 @@ document.querySelectorAll('.overlay').forEach(o => {
 // To create users, open browser console and run:
 // db.collection('users').add({ username: 'admin', password: 'yourpass', role: 'admin' })
 // db.collection('users').add({ username: 'operator', password: 'yourpass', role: 'operator' })
+
+// ══════════════════════════════════════════════
+// STOCK ENGINE
+// ══════════════════════════════════════════════
+
+// Get latest opening stock entry for a SKU
+function getLatestOpening(skuId) {
+  const entries = allStockOpening.filter(s => s.skuId === skuId).sort((a, b) => b.date > a.date ? 1 : -1);
+  return entries[0] || null;
+}
+
+// Calculate current stock for a SKU
+function calcStock(skuId) {
+  const opening = getLatestOpening(skuId);
+  const baseDate = opening ? opening.date : '0000-00-00';
+  const baseQty  = opening ? (opening.qty || 0) : 0;
+
+  // Sum deliveries on/after base date
+  const purchased = allDeliveries
+    .filter(d => d.skuId === skuId && d.deliveryDate >= baseDate)
+    .reduce((s, d) => s + (d.qty || 0), 0);
+
+  // Sum issues on/after base date
+  const issued = allStockIssues
+    .filter(i => i.skuId === skuId && i.date >= baseDate)
+    .reduce((s, i) => s + (i.qty || 0), 0);
+
+  return { baseQty, baseDate, purchased, issued, closing: baseQty + purchased - issued };
+}
+
+// ── RENDER STOCK TAB ──
+function renderStock(subTab, btn) {
+  if (btn) {
+    document.querySelectorAll('#stock-subtabs .ftab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  const el = document.getElementById('stock-content');
+  if (subTab === 'current')       renderCurrentStock(el);
+  if (subTab === 'set-opening')   renderSetOpening(el);
+  if (subTab === 'issue-history') renderIssueHistory(el);
+  if (subTab === 'ledger')        renderStockLedger(el);
+}
+
+// Current Stock summary
+function renderCurrentStock(el) {
+  if (!allSkus.length) { el.innerHTML = '<div class="empty"><div class="ei">📦</div><p>No SKUs added yet</p></div>'; return; }
+  const rows = allSkus.map(sku => {
+    const { baseQty, baseDate, purchased, issued, closing } = calcStock(sku.id);
+    const lowClass = (sku.minStock && closing <= sku.minStock) ? 'color:#dc2626;font-weight:800;' : 'color:#16a34a;font-weight:800;';
+    return `<tr>
+      <td><strong>${sku.name}</strong></td>
+      <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${sku.category}</span></td>
+      <td>${baseDate !== '0000-00-00' ? fmtD(baseDate) : '—'}</td>
+      <td>${fmtQ(baseQty)} ${sku.unit}</td>
+      <td style="color:#16a34a;font-weight:600;">+${fmtQ(purchased)}</td>
+      <td style="color:#dc2626;font-weight:600;">-${fmtQ(issued)}</td>
+      <td style="${lowClass}">${fmtQ(closing)} ${sku.unit}</td>
+      ${CU.role==='admin' ? `<td><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td></td>'}
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<div class="card"><div class="tbl-wrap"><table>
+    <thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div></div>`;
+}
+
+// Set Opening Stock
+function renderSetOpening(el) {
+  const rows = allStockOpening.length ? allStockOpening.map(o => {
+    const sku = getSku(o.skuId);
+    return `<tr>
+      <td>${fmtD(o.date)}</td>
+      <td><strong>${sku.name}</strong></td>
+      <td>${fmtQ(o.qty)} ${sku.unit}</td>
+      <td>${o.notes || '—'}</td>
+      <td>${o.setBy || '—'}</td>
+      <td><button class="btn btn-red btn-sm" onclick="deleteOpening('${o.id}')">Del</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;">No opening stock entries yet</td></tr>`;
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px;">
+      <button class="btn btn-blue" onclick="openOpeningModal()">+ Set Opening Stock</button>
+    </div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <thead><tr><th>Date</th><th>SKU</th><th>Opening Qty</th><th>Notes</th><th>Set By</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></div>`;
+}
+
+// Issue History (admin)
+function renderIssueHistory(el) {
+  const rows = allStockIssues.length ? allStockIssues.map(i => {
+    const sku = getSku(i.skuId);
+    return `<tr>
+      <td>${fmtD(i.date)}</td>
+      <td><strong>${i.skuName || sku.name}</strong></td>
+      <td><strong>${fmtQ(i.qty)} ${i.skuUnit || sku.unit}</strong></td>
+      <td>${i.notes || '—'}</td>
+      <td>${i.createdBy || '—'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="openEditIssue('${i.id}')">Edit</button>
+        <button class="btn btn-red btn-sm" onclick="deleteIssue('${i.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;">No issues recorded yet</td></tr>`;
+
+  el.innerHTML = `<div class="card"><div class="tbl-wrap"><table>
+    <thead><tr><th>Date</th><th>SKU</th><th>Qty Issued</th><th>Notes</th><th>By</th><th>Actions</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div></div>`;
+}
+
+// Stock Ledger per SKU
+function renderStockLedger(el) {
+  const skuSel = `<div class="mfg" style="max-width:300px;margin-bottom:16px;">
+    <label>Select SKU</label>
+    <select id="ledger-sku-sel" onchange="renderLedgerTable()">
+      <option value="">— Choose SKU —</option>
+      ${allSkus.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+    </select>
+  </div>`;
+  el.innerHTML = skuSel + '<div id="ledger-table"></div>';
+}
+
+function renderLedgerTable() {
+  const skuId = document.getElementById('ledger-sku-sel').value;
+  const el = document.getElementById('ledger-table');
+  if (!skuId) { el.innerHTML = ''; return; }
+  const sku = getSku(skuId);
+  const opening = getLatestOpening(skuId);
+  const baseDate = opening ? opening.date : null;
+
+  if (!baseDate) {
+    el.innerHTML = '<div class="alert alert-warn" style="display:block;">No opening stock set for this SKU. Please set opening stock first.</div>';
+    return;
+  }
+
+  // Build all events from baseDate onwards
+  const events = [];
+  events.push({ date: baseDate, type: 'Opening', qty: opening.qty, note: opening.notes || '' });
+  allDeliveries.filter(d => d.skuId === skuId && d.deliveryDate >= baseDate)
+    .forEach(d => events.push({ date: d.deliveryDate, type: 'Purchase', qty: d.qty, note: d.notes || '' }));
+  allStockIssues.filter(i => i.skuId === skuId && i.date >= baseDate)
+    .forEach(i => events.push({ date: i.date, type: 'Issue', qty: -i.qty, note: i.notes || '' }));
+  events.sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+
+  let running = 0;
+  const rows = events.map(e => {
+    running += e.qty;
+    const typeColor = e.type === 'Opening' ? '#1565c0' : e.type === 'Purchase' ? '#16a34a' : '#dc2626';
+    return `<tr>
+      <td>${fmtD(e.date)}</td>
+      <td><span style="color:${typeColor};font-weight:700;">${e.type}</span></td>
+      <td style="color:${e.qty>=0?'#16a34a':'#dc2626'};font-weight:600;">${e.qty>=0?'+':''}${fmtQ(e.qty)} ${sku.unit}</td>
+      <td><strong>${fmtQ(running)} ${sku.unit}</strong></td>
+      <td>${e.note}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<div class="card"><div style="font-size:14px;font-weight:700;color:#0f2044;margin-bottom:14px;">📒 ${sku.name} — Stock Ledger (from ${fmtD(baseDate)})</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Movement</th><th>Balance</th><th>Notes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></div>`;
+}
+
+// Opening Stock Modal
+function openOpeningModal(skuId) {
+  const sel = document.getElementById('os-sku');
+  sel.innerHTML = '<option value="">— Select SKU —</option>' +
+    allSkus.map(s => `<option value="${s.id}" ${s.id===skuId?'selected':''}>${s.name} (${s.unit})</option>`).join('');
+  document.getElementById('os-date').value = today();
+  document.getElementById('os-qty').value = '';
+  document.getElementById('os-notes').value = '';
+  openOverlay('modal-opening');
+}
+
+async function saveOpeningStock() {
+  const skuId = document.getElementById('os-sku').value;
+  const date  = document.getElementById('os-date').value;
+  const qty   = parseFloat(document.getElementById('os-qty').value);
+  const notes = document.getElementById('os-notes').value.trim();
+  if (!skuId || !date || isNaN(qty) || qty < 0) { alert('Please fill SKU, date and quantity.'); return; }
+  const sku = getSku(skuId);
+  try {
+    await db.collection('stock_opening').add({
+      skuId, skuName: sku.name, skuUnit: sku.unit || 'kg', qty, date, notes,
+      setBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeOverlay('modal-opening');
+    await loadAll();
+  } catch(e) { alert('Save error: ' + e.message); }
+}
+
+async function deleteOpening(id) {
+  if (!confirm('Delete this opening stock entry? This will affect all stock calculations for this SKU.')) return;
+  try { await db.collection('stock_opening').doc(id).delete(); await loadAll(); }
+  catch(e) { alert('Error: ' + e.message); }
+}
+
+// Issue to Production Form
+function setupIssueForm() {
+  const sel = document.getElementById('ip-sku');
+  sel.innerHTML = '<option value="">— Choose SKU —</option>' +
+    allSkus.map(s => `<option value="${s.id}">${s.name} (${s.unit})</option>`).join('');
+  document.getElementById('ip-date').value = today();
+  document.getElementById('ip-qty').value = '';
+  document.getElementById('ip-notes').value = '';
+  document.getElementById('ip-alert').style.display = 'none';
+  document.getElementById('ip-stock-info').style.display = 'none';
+}
+
+function onIssueSkuSel() {
+  const skuId = document.getElementById('ip-sku').value;
+  const el = document.getElementById('ip-stock-info');
+  if (!skuId) { el.style.display = 'none'; return; }
+  const sku = getSku(skuId);
+  const { closing } = calcStock(skuId);
+  el.style.display = 'block';
+  el.className = 'deal-info-box';
+  el.innerHTML = `
+    <div class="dib-row"><span class="dib-label">SKU</span><span class="dib-val">${sku.name}</span></div>
+    <div class="dib-row"><span class="dib-label">Current Stock</span><span class="dib-val" style="color:${closing>0?'#16a34a':'#dc2626'}">${fmtQ(closing)} ${sku.unit}</span></div>`;
+}
+
+async function submitIssue() {
+  const skuId = document.getElementById('ip-sku').value;
+  const date  = document.getElementById('ip-date').value;
+  const qty   = parseFloat(document.getElementById('ip-qty').value);
+  const notes = document.getElementById('ip-notes').value.trim();
+  const alertEl = document.getElementById('ip-alert');
+  if (!skuId) { alertEl.className='alert alert-error'; alertEl.textContent='Please select a SKU.'; alertEl.style.display='block'; return; }
+  if (!date)  { alertEl.className='alert alert-error'; alertEl.textContent='Please select a date.'; alertEl.style.display='block'; return; }
+  if (!qty || qty <= 0) { alertEl.className='alert alert-error'; alertEl.textContent='Please enter a valid quantity.'; alertEl.style.display='block'; return; }
+  const sku = getSku(skuId);
+  const { closing } = calcStock(skuId);
+  if (qty > closing) {
+    if (!confirm(`⚠ Issue qty (${fmtQ(qty)} ${sku.unit}) exceeds current stock (${fmtQ(closing)} ${sku.unit}).\n\nThis will result in negative stock. Proceed?`)) return;
+  }
+  try {
+    await db.collection('stock_issues').add({
+      skuId, skuName: sku.name, skuUnit: sku.unit || 'kg', qty, date, notes,
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    alertEl.className = 'alert alert-success';
+    alertEl.textContent = `✓ Issue of ${fmtQ(qty)} ${sku.unit} of ${sku.name} recorded!`;
+    alertEl.style.display = 'block';
+    document.getElementById('ip-sku').value = '';
+    document.getElementById('ip-qty').value = '';
+    document.getElementById('ip-notes').value = '';
+    document.getElementById('ip-stock-info').style.display = 'none';
+    setTimeout(() => { alertEl.style.display = 'none'; }, 4000);
+    await loadAll();
+  } catch(e) { alertEl.className='alert alert-error'; alertEl.textContent='Error: '+e.message; alertEl.style.display='block'; }
+}
+
+// Edit Issue
+function openEditIssue(id) {
+  const i = allStockIssues.find(x => x.id === id);
+  if (!i) return;
+  document.getElementById('ei-id').value = id;
+  document.getElementById('ei-date').value = i.date;
+  document.getElementById('ei-qty').value = i.qty;
+  document.getElementById('ei-notes').value = i.notes || '';
+  openOverlay('modal-edit-issue');
+}
+
+async function saveEditIssue() {
+  const id  = document.getElementById('ei-id').value;
+  const date = document.getElementById('ei-date').value;
+  const qty  = parseFloat(document.getElementById('ei-qty').value);
+  const notes = document.getElementById('ei-notes').value.trim();
+  if (!date || !qty || qty <= 0) { alert('Please fill date and quantity.'); return; }
+  try {
+    await db.collection('stock_issues').doc(id).update({ date, qty, notes, updatedBy: CU.username, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    closeOverlay('modal-edit-issue');
+    await loadAll();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteIssue(id) {
+  if (!confirm('Delete this issue entry? Stock will be recalculated.')) return;
+  try { await db.collection('stock_issues').doc(id).delete(); await loadAll(); }
+  catch(e) { alert('Error: ' + e.message); }
+}
+
+// Operator: Today's Deliveries
+function renderOprHistory() {
+  const t = today();
+  const dels = CU.role === 'admin'
+    ? allDeliveries.filter(d => d.deliveryDate === t)
+    : allDeliveries.filter(d => d.deliveryDate === t && d.createdBy === CU.username);
+  document.getElementById('opr-history-sub').textContent = `Today — ${fmtD(t)}`;
+  const tbody = document.getElementById('opr-hist-tbody');
+  if (!dels.length) { tbody.innerHTML = emptyRow(6, "No deliveries recorded today"); return; }
+  tbody.innerHTML = dels.map(d => `<tr>
+    <td>${fmtD(d.deliveryDate)}</td>
+    <td>${d.supplierName||'—'}</td>
+    <td>${d.skuName||'—'}</td>
+    <td style="color:#dc2626;font-weight:700;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</td>
+    <td><strong>${fmtQ(d.qty)} ${d.skuUnit||'kg'}</strong></td>
+    <td>${d.notes||'—'}</td>
+  </tr>`).join('');
+}
+
+// Operator: Today's Issues
+function renderOprIssues() {
+  const t = today();
+  const issues = CU.role === 'admin'
+    ? allStockIssues.filter(i => i.date === t)
+    : allStockIssues.filter(i => i.date === t && i.createdBy === CU.username);
+  document.getElementById('opr-issues-sub').textContent = `Today — ${fmtD(t)}`;
+  const tbody = document.getElementById('opr-issues-tbody');
+  if (!issues.length) { tbody.innerHTML = emptyRow(5, "No issues recorded today"); return; }
+  tbody.innerHTML = issues.map(i => `<tr>
+    <td>${fmtD(i.date)}</td>
+    <td><strong>${i.skuName||'—'}</strong></td>
+    <td><strong>${fmtQ(i.qty)} ${i.skuUnit||'kg'}</strong></td>
+    <td>${i.notes||'—'}</td>
+    <td>${i.createdBy||'—'}</td>
+  </tr>`).join('');
+}
 
 // ══════════════════════════════════════════════
 // USERS
