@@ -245,7 +245,43 @@
     /* Loading */
     .loading { text-align: center; padding: 32px; color: #94a3b8; font-size: 14px; }
 
-    /* Bulk Deal Line Items */
+    /* Searchable Select */
+    .ss-wrap { position: relative; }
+    .ss-input {
+      width: 100%; padding: 10px 13px; border: 2px solid #e8edf3;
+      border-radius: 9px; font-size: 14px; outline: none; color: #1e293b;
+      transition: border-color 0.2s, box-shadow 0.2s; background: white;
+      cursor: text;
+    }
+    .ss-input:focus { border-color: #1565c0; box-shadow: 0 0 0 3px rgba(21,101,192,0.1); }
+    .ss-dropdown {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 500;
+      background: white; border: 2px solid #1565c0; border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15); max-height: 220px; overflow-y: auto;
+    }
+    .ss-option {
+      padding: 9px 13px; font-size: 13px; cursor: pointer; color: #1e293b;
+      transition: background 0.12s; border-bottom: 1px solid #f1f5f9;
+    }
+    .ss-option:last-child { border-bottom: none; }
+    .ss-option:hover, .ss-option.ss-active { background: #f0f7ff; color: #1565c0; font-weight: 600; }
+    .ss-option.ss-selected { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
+    .ss-empty { padding: 10px 13px; font-size: 13px; color: #94a3b8; font-style: italic; }
+
+    /* Keyboard shortcut hint bar */
+    #kb-hints {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 90;
+      background: #0f2044; color: #94a3b8; font-size: 11px;
+      padding: 5px 16px; display: flex; gap: 16px; flex-wrap: wrap;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    #kb-hints span { white-space: nowrap; }
+    #kb-hints kbd {
+      display: inline-block; background: rgba(255,255,255,0.12); color: #e2e8f0;
+      padding: 1px 5px; border-radius: 4px; font-size: 10px; font-family: monospace;
+      border: 1px solid rgba(255,255,255,0.2); margin-right: 3px;
+    }
+    @media (max-width: 768px) { #kb-hints { display: none; } }
     .bulk-line { display:flex; gap:8px; align-items:flex-end; margin-bottom:10px; padding:12px; background:#f8fafc; border-radius:10px; border:1.5px solid #e8edf3; flex-wrap:wrap; }
     .bulk-line .mfg { margin-bottom:0; flex:1; min-width:120px; }
     .bulk-line .mfg input, .bulk-line .mfg select { font-size:13px; padding:8px 10px; }
@@ -641,6 +677,18 @@
   </div><!-- /main-content -->
 </div><!-- /app -->
 
+<!-- Keyboard hints bar (desktop only) -->
+<div id="kb-hints" style="display:none;">
+  <span><kbd>Alt+N</kbd> Single Deal</span>
+  <span><kbd>Alt+B</kbd> Bulk Deal</span>
+  <span><kbd>Alt+D</kbd> Add Delivery</span>
+  <span><kbd>Alt+I</kbd> Issue to Production</span>
+  <span><kbd>Alt+S</kbd> Stock</span>
+  <span><kbd>Alt+U</kbd> Users</span>
+  <span><kbd>Esc</kbd> Close modal</span>
+  <span><kbd>Enter</kbd> Next field / Save</span>
+</div>
+
 <!-- ═══════════════ MODALS ═══════════════ -->
 
 <!-- Bulk Deal Modal -->
@@ -973,6 +1021,7 @@ function switchTab(id) {
 // ══════════════════════════════════════════════
 async function initApp() {
   buildNav();
+  initKeyboard();
   await loadAll();
 }
 
@@ -1144,6 +1193,7 @@ function openBulkDealModal() {
   document.getElementById('bdm-alert').style.display = 'none';
   addBulkLine(); // start with one row
   openOverlay('modal-bulk-deal');
+  setTimeout(() => initSearchableSelect('bdm-sup'), 120);
 }
 
 function addBulkLine() {
@@ -1169,6 +1219,33 @@ function addBulkLine() {
     <button class="bulk-line-del" onclick="removeBulkLine(${id})" title="Remove row">✕</button>
   `;
   document.getElementById('bulk-lines').appendChild(line);
+  // Tab or Enter on Rate field → add new row and focus its SKU
+  const rateInput = document.getElementById(`bl-rate-${id}`);
+  rateInput.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      addBulkLine();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      addBulkLine();
+    }
+  });
+  // Enter on Qty → move to Rate
+  const qtyInput = document.getElementById(`bl-qty-${id}`);
+  qtyInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); rateInput.focus(); }
+  });
+  // Init searchable select for this line's SKU
+  setTimeout(() => initSearchableSelect(`bl-sku-${id}`, () => {
+    // after SKU selected → focus qty
+    setTimeout(() => qtyInput.focus(), 50);
+  }), 50);
+  // Focus the new row's SKU input
+  setTimeout(() => {
+    const ssInput = document.querySelector(`#bl-sku-${id}-ss-wrap input`);
+    if (ssInput) ssInput.focus();
+    else document.getElementById(`bl-sku-${id}`).focus();
+  }, 80);
 }
 
 function removeBulkLine(id) {
@@ -1257,6 +1334,10 @@ function openDealModal(id) {
   skuSel.innerHTML = '<option value="">— Select SKU —</option>' +
     allSkus.map(s => `<option value="${s.id}" ${s.id===deal?.skuId?'selected':''}>${s.name} (${s.category})</option>`).join('');
   openOverlay('modal-deal');
+  setTimeout(() => {
+    initSearchableSelect('dm-sup');
+    initSearchableSelect('dm-sku');
+  }, 120);
 }
 
 async function saveDeal() {
@@ -1448,6 +1529,7 @@ function setupDeliveryForm() {
   document.getElementById('dd-qty').value = '';
   document.getElementById('dd-notes').value = '';
   document.getElementById('dd-alert').style.display = 'none';
+  setTimeout(() => { initSearchableSelect('dd-sel'); }, 100);
 }
 
 function onDealSel() {
@@ -1515,11 +1597,16 @@ async function submitDelivery() {
     }
     await batch.commit();
     showAlert('success', `✓ Delivery of ${fmtQ(qty)} ${sku.unit||'kg'} recorded successfully!${newStatus === 'FULFILLED' ? ' Deal is now FULFILLED.' : newStatus === 'OVERFULFILLED' ? ' ⚠ Deal marked OVERFULFILLED.' : ''}`);
-    document.getElementById('dd-sel').value = '';
     document.getElementById('dd-qty').value = '';
     document.getElementById('dd-notes').value = '';
     document.getElementById('dd-info').style.display = 'none';
     await loadAll();
+    // Refocus deal dropdown for next quick entry
+    setTimeout(() => {
+      const ssInput = document.querySelector('#dd-sel-ss-wrap input');
+      if (ssInput) { ssInput.value = ''; ssInput.focus(); }
+      else document.getElementById('dd-sel').focus();
+    }, 300);
   } catch(e) { showAlert('error', 'Error: ' + e.message); }
 }
 
@@ -1719,8 +1806,20 @@ function printReport(type) {
 // ══════════════════════════════════════════════
 // MODAL HELPERS
 // ══════════════════════════════════════════════
-function openOverlay(id) { document.getElementById(id).classList.add('open'); }
-function closeOverlay(id) { document.getElementById(id).classList.remove('open'); }
+function openOverlay(id) {
+  document.getElementById(id).classList.add('open');
+  // Auto-focus first focusable field in modal
+  setTimeout(() => {
+    const modal = document.getElementById(id);
+    const first = modal.querySelector('input:not([type=hidden]), select, textarea');
+    if (first) first.focus();
+  }, 80);
+}
+function closeOverlay(id) {
+  document.getElementById(id).classList.remove('open');
+  // Destroy any open searchable dropdowns inside
+  document.querySelectorAll(`#${id} .ss-dropdown`).forEach(d => d.remove());
+}
 document.querySelectorAll('.overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
 });
@@ -1942,6 +2041,7 @@ function setupIssueForm() {
   document.getElementById('ip-notes').value = '';
   document.getElementById('ip-alert').style.display = 'none';
   document.getElementById('ip-stock-info').style.display = 'none';
+  setTimeout(() => { initSearchableSelect('ip-sku'); }, 100);
 }
 
 function onIssueSkuSel() {
@@ -1979,12 +2079,16 @@ async function submitIssue() {
     alertEl.className = 'alert alert-success';
     alertEl.textContent = `✓ Issue of ${fmtQ(qty)} ${sku.unit} of ${sku.name} recorded!`;
     alertEl.style.display = 'block';
-    document.getElementById('ip-sku').value = '';
     document.getElementById('ip-qty').value = '';
     document.getElementById('ip-notes').value = '';
     document.getElementById('ip-stock-info').style.display = 'none';
     setTimeout(() => { alertEl.style.display = 'none'; }, 4000);
     await loadAll();
+    // Refocus SKU dropdown for next quick entry
+    setTimeout(() => {
+      const ssInput = document.querySelector('#ip-sku-ss-wrap input');
+      if (ssInput) { ssInput.value = ''; ssInput.focus(); }
+    }, 300);
   } catch(e) { alertEl.className='alert alert-error'; alertEl.textContent='Error: '+e.message; alertEl.style.display='block'; }
 }
 
@@ -2119,6 +2223,194 @@ async function deleteUser(id, username) {
 function toggleUmPw() {
   const inp = document.getElementById('um-password');
   inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ══════════════════════════════════════════════
+// SEARCHABLE SELECT (Feature 6)
+// ══════════════════════════════════════════════
+function initSearchableSelect(selectId, onSelectCallback) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  // Remove existing wrapper if any
+  const existingWrap = document.getElementById(selectId + '-ss-wrap');
+  if (existingWrap) existingWrap.remove();
+  select.style.display = 'none';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ss-wrap';
+  wrap.id = selectId + '-ss-wrap';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'ss-input';
+  input.placeholder = select.options[0]?.text || 'Search...';
+  input.autocomplete = 'off';
+
+  // Show selected value
+  const selectedOpt = select.options[select.selectedIndex];
+  if (selectedOpt && selectedOpt.value) input.value = selectedOpt.text;
+
+  let dropdown = null;
+  let activeIdx = -1;
+
+  function getOptions(filter) {
+    return Array.from(select.options).filter(o =>
+      o.value && (!filter || o.text.toLowerCase().includes(filter.toLowerCase()))
+    );
+  }
+
+  function showDropdown(filter) {
+    if (dropdown) dropdown.remove();
+    dropdown = document.createElement('div');
+    dropdown.className = 'ss-dropdown';
+    activeIdx = -1;
+    const opts = getOptions(filter);
+    if (!opts.length) {
+      dropdown.innerHTML = '<div class="ss-empty">No matches found</div>';
+    } else {
+      opts.forEach((opt, i) => {
+        const div = document.createElement('div');
+        div.className = 'ss-option' + (opt.value === select.value ? ' ss-selected' : '');
+        div.textContent = opt.text;
+        div.addEventListener('mousedown', e => {
+          e.preventDefault();
+          selectOption(opt);
+        });
+        dropdown.appendChild(div);
+      });
+    }
+    wrap.appendChild(dropdown);
+  }
+
+  function selectOption(opt) {
+    select.value = opt.value;
+    input.value = opt.text;
+    if (dropdown) { dropdown.remove(); dropdown = null; }
+    // Fire onchange on the original select
+    select.dispatchEvent(new Event('change'));
+    if (onSelectCallback) onSelectCallback(opt.value);
+  }
+
+  function clearSelection() {
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+  }
+
+  input.addEventListener('focus', () => showDropdown(input.value));
+  input.addEventListener('input', () => {
+    if (!input.value) clearSelection();
+    showDropdown(input.value);
+    activeIdx = -1;
+  });
+  input.addEventListener('keydown', e => {
+    const items = dropdown ? dropdown.querySelectorAll('.ss-option') : [];
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('ss-active', i === activeIdx));
+      if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('ss-active', i === activeIdx));
+      if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0 && items[activeIdx]) {
+        items[activeIdx].dispatchEvent(new MouseEvent('mousedown'));
+      } else if (items.length === 1) {
+        items[0].dispatchEvent(new MouseEvent('mousedown'));
+      }
+    } else if (e.key === 'Escape') {
+      if (dropdown) { dropdown.remove(); dropdown = null; }
+    } else if (e.key === 'Tab') {
+      if (dropdown) { dropdown.remove(); dropdown = null; }
+    }
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => { if (dropdown) { dropdown.remove(); dropdown = null; } }, 200);
+    // If input doesn't match any option, revert to selected or clear
+    const opts = getOptions('');
+    const match = opts.find(o => o.text === input.value);
+    if (!match) {
+      if (select.value) {
+        const current = opts.find(o => o.value === select.value);
+        input.value = current ? current.text : '';
+      } else {
+        input.value = '';
+      }
+    }
+  });
+
+  select.parentNode.insertBefore(wrap, select.nextSibling);
+  wrap.appendChild(input);
+  wrap.appendChild(select);
+}
+
+// ══════════════════════════════════════════════
+// KEYBOARD SHORTCUTS & NAVIGATION (Features 1-5)
+// ══════════════════════════════════════════════
+function initKeyboard() {
+  // Global keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    // Escape: close any open modal
+    if (e.key === 'Escape') {
+      const openModals = document.querySelectorAll('.overlay.open');
+      if (openModals.length) {
+        openModals.forEach(m => m.classList.remove('open'));
+        return;
+      }
+    }
+
+    // Alt shortcuts (only when no modal open and user is logged in)
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && CU) {
+      const hasModal = document.querySelectorAll('.overlay.open').length > 0;
+      if (hasModal) return;
+      switch(e.key.toLowerCase()) {
+        case 'n': e.preventDefault(); openDealModal(); break;
+        case 'b': e.preventDefault(); openBulkDealModal(); break;
+        case 'd': e.preventDefault(); switchTab('add-delivery'); break;
+        case 'i': e.preventDefault(); switchTab('issue-production'); break;
+        case 's': e.preventDefault(); if(CU.role==='admin') switchTab('stock'); break;
+        case 'u': e.preventDefault(); if(CU.role==='admin') switchTab('users'); break;
+      }
+    }
+  });
+
+  // Enter key navigation between form fields in modals
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const tag = e.target.tagName;
+    if (tag === 'TEXTAREA') return; // allow Enter in textarea
+    if (tag === 'BUTTON') return;   // allow Enter on buttons
+    if (e.target.classList.contains('ss-input')) return; // handled by ss
+
+    const modal = e.target.closest('.modal');
+    if (!modal) return;
+    e.preventDefault();
+
+    // Get all focusable fields in modal in order
+    const fields = Array.from(modal.querySelectorAll(
+      'input:not([type=hidden]):not([disabled]), select:not([style*="display: none"]):not([style*="display:none"]), textarea, .ss-input'
+    )).filter(el => el.offsetParent !== null);
+
+    const idx = fields.indexOf(e.target);
+    if (idx >= 0 && idx < fields.length - 1) {
+      fields[idx + 1].focus();
+    } else if (idx === fields.length - 1) {
+      // Last field → click Save button
+      const saveBtn = modal.querySelector('.modal-actions .btn-blue, .modal-actions .btn-green');
+      if (saveBtn) saveBtn.click();
+    }
+  });
+
+  // Show keyboard hints bar for desktop users
+  if (window.innerWidth > 768) {
+    document.getElementById('kb-hints').style.display = 'flex';
+    // Add bottom padding to main content to not overlap hints
+    const mc = document.querySelector('.main-content');
+    if (mc) mc.style.paddingBottom = '40px';
+  }
 }
 
 // ══════════════════════════════════════════════
