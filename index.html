@@ -282,6 +282,29 @@
       border: 1px solid rgba(255,255,255,0.2); margin-right: 3px;
     }
     @media (max-width: 768px) { #kb-hints { display: none; } }
+    /* Bulk Delivery Rows */
+    .bd-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 2fr 1.5fr;
+      gap: 10px; align-items: center;
+      padding: 10px 12px; background: #f8fafc;
+      border-radius: 10px; margin-bottom: 8px;
+      border: 1.5px solid #e8edf3; transition: border-color 0.2s;
+    }
+    .bd-row:focus-within { border-color: #1565c0; background: #f0f7ff; }
+    .bd-row-label { font-size: 12px; font-weight: 700; color: #374151; }
+    .bd-row-sub { font-size: 11px; color: #94a3b8; margin-top: 1px; }
+    .bd-row-rem { font-size: 13px; font-weight: 700; color: #dc2626; }
+    .bd-row-rate { font-size: 12px; color: #1565c0; font-weight: 600; }
+    .bd-row input {
+      width: 100%; padding: 8px 10px; border: 2px solid #e8edf3;
+      border-radius: 8px; font-size: 14px; outline: none; color: #1e293b;
+      transition: border-color 0.2s;
+    }
+    .bd-row input:focus { border-color: #1565c0; }
+    .bd-row input.has-value { border-color: #16a34a; background: #f0fdf4; }
+    @media (max-width: 768px) { .bd-row { grid-template-columns: 1fr 1fr; } }
+
     .bulk-line { display:flex; gap:8px; align-items:flex-end; margin-bottom:10px; padding:12px; background:#f8fafc; border-radius:10px; border:1.5px solid #e8edf3; flex-wrap:wrap; }
     .bulk-line .mfg { margin-bottom:0; flex:1; min-width:120px; }
     .bulk-line .mfg input, .bulk-line .mfg select { font-size:13px; padding:8px 10px; }
@@ -543,29 +566,73 @@
 
     <!-- ── ADD DELIVERY ── -->
     <div class="panel" id="panel-add-delivery">
-      <div class="ph"><div class="ph-title">🚚 Add Delivery</div></div>
-      <div class="delivery-form-card">
-        <div class="mfg">
-          <label>Select Open Deal</label>
-          <select id="dd-sel" onchange="onDealSel()">
-            <option value="">— Choose a Deal —</option>
-          </select>
+      <div class="ph">
+        <div><div class="ph-title">🚚 Add Delivery</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="ftab active" id="del-mode-single" onclick="setDeliveryMode('single')">Single</button>
+          <button class="ftab" id="del-mode-bulk" onclick="setDeliveryMode('bulk')">Bulk (Multi-SKU)</button>
         </div>
-        <div id="dd-info" style="display:none;"></div>
-        <div class="mfg">
-          <label>Delivery Date</label>
-          <input type="date" id="dd-date" />
+      </div>
+
+      <!-- Single Delivery Form -->
+      <div id="del-single-form">
+        <div class="delivery-form-card">
+          <div class="mfg">
+            <label>Select Open Deal</label>
+            <select id="dd-sel" onchange="onDealSel()">
+              <option value="">— Choose a Deal —</option>
+            </select>
+          </div>
+          <div id="dd-info" style="display:none;"></div>
+          <div class="mfg">
+            <label>Delivery Date</label>
+            <input type="date" id="dd-date" />
+          </div>
+          <div class="mfg">
+            <label>Quantity Received</label>
+            <input type="number" id="dd-qty" placeholder="Enter quantity" min="0.01" step="0.01" />
+          </div>
+          <div class="mfg">
+            <label>Notes (optional — vehicle no., bill no., etc.)</label>
+            <textarea id="dd-notes" rows="2" placeholder="e.g. Bill No. 1042, Vehicle HR-23-AB-1234"></textarea>
+          </div>
+          <div id="dd-alert" style="display:none;"></div>
+          <button class="btn btn-green btn-lg" style="width:100%;" onclick="submitDelivery()">✓ Record Delivery</button>
         </div>
-        <div class="mfg">
-          <label>Quantity Received</label>
-          <input type="number" id="dd-qty" placeholder="Enter quantity" min="0.01" step="0.01" />
+      </div>
+
+      <!-- Bulk Delivery Form -->
+      <div id="del-bulk-form" style="display:none;">
+        <div class="delivery-form-card" style="max-width:100%;">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+            <div class="mfg" style="flex:2;min-width:200px;margin-bottom:0;">
+              <label>Supplier *</label>
+              <select id="bd-sup" onchange="onBulkDeliverySupplierSel()">
+                <option value="">— Select Supplier —</option>
+              </select>
+            </div>
+            <div class="mfg" style="flex:1;min-width:160px;margin-bottom:0;">
+              <label>Delivery Date *</label>
+              <input type="date" id="bd-date" />
+            </div>
+          </div>
+          <div class="mfg">
+            <label>Common Notes (Vehicle No., Bill No. — applies to all rows)</label>
+            <input type="text" id="bd-notes" placeholder="e.g. Bill No. 1042, Vehicle HR-23-AB-1234" />
+          </div>
+          <div id="bd-sup-info" style="display:none;"></div>
+          <div id="bd-rows-wrap" style="display:none;">
+            <div style="font-size:12px;font-weight:700;color:#0f2044;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.4px;">
+              Open Deals for this Supplier — enter qty for items received (leave blank to skip)
+            </div>
+            <div id="bd-rows"></div>
+            <div id="bd-alert" style="display:none;"></div>
+            <button class="btn btn-green btn-lg" style="width:100%;margin-top:8px;" onclick="submitBulkDelivery()">✓ Record All Deliveries</button>
+          </div>
+          <div id="bd-empty" style="display:none;">
+            <div class="alert alert-warn" style="display:block;">No open deals found for this supplier.</div>
+          </div>
         </div>
-        <div class="mfg">
-          <label>Notes (optional — vehicle no., bill no., etc.)</label>
-          <textarea id="dd-notes" rows="2" placeholder="e.g. Bill No. 1042, Vehicle HR-23-AB-1234"></textarea>
-        </div>
-        <div id="dd-alert" style="display:none;"></div>
-        <button class="btn btn-green btn-lg" style="width:100%;" onclick="submitDelivery()">✓ Record Delivery</button>
       </div>
     </div>
 
@@ -1516,6 +1583,14 @@ async function delSku(id) {
 // ADD DELIVERY
 // ══════════════════════════════════════════════
 function setupDeliveryForm() {
+  // Restore correct mode visibility
+  document.getElementById('del-single-form').style.display = deliveryMode === 'single' ? 'block' : 'none';
+  document.getElementById('del-bulk-form').style.display = deliveryMode === 'bulk' ? 'block' : 'none';
+  document.getElementById('del-mode-single').classList.toggle('active', deliveryMode === 'single');
+  document.getElementById('del-mode-bulk').classList.toggle('active', deliveryMode === 'bulk');
+
+  if (deliveryMode === 'bulk') { setupBulkDeliveryForm(); return; }
+
   const openDeals = allDeals.filter(d => d.status === 'OPEN');
   const sel = document.getElementById('dd-sel');
   sel.innerHTML = '<option value="">— Choose a Deal —</option>' +
@@ -1619,7 +1694,222 @@ function showAlert(type, msg) {
 }
 
 // ══════════════════════════════════════════════
-// HISTORY
+// BULK DELIVERY
+// ══════════════════════════════════════════════
+let deliveryMode = 'single';
+
+function setDeliveryMode(mode) {
+  deliveryMode = mode;
+  document.getElementById('del-mode-single').classList.toggle('active', mode === 'single');
+  document.getElementById('del-mode-bulk').classList.toggle('active', mode === 'bulk');
+  document.getElementById('del-single-form').style.display = mode === 'single' ? 'block' : 'none';
+  document.getElementById('del-bulk-form').style.display = mode === 'bulk' ? 'block' : 'none';
+  if (mode === 'bulk') setupBulkDeliveryForm();
+}
+
+function setupBulkDeliveryForm() {
+  const supSel = document.getElementById('bd-sup');
+  supSel.innerHTML = '<option value="">— Select Supplier —</option>' +
+    allSuppliers.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  document.getElementById('bd-date').value = today();
+  document.getElementById('bd-notes').value = '';
+  document.getElementById('bd-rows-wrap').style.display = 'none';
+  document.getElementById('bd-empty').style.display = 'none';
+  document.getElementById('bd-sup-info').style.display = 'none';
+  document.getElementById('bd-rows').innerHTML = '';
+  document.getElementById('bd-alert').style.display = 'none';
+  setTimeout(() => initSearchableSelect('bd-sup', () => {
+    setTimeout(onBulkDeliverySupplierSel, 50);
+  }), 100);
+}
+
+function onBulkDeliverySupplierSel() {
+  const supId = document.getElementById('bd-sup').value;
+  const rowsWrap = document.getElementById('bd-rows-wrap');
+  const emptyEl  = document.getElementById('bd-empty');
+  const infoEl   = document.getElementById('bd-sup-info');
+  const rowsEl   = document.getElementById('bd-rows');
+  rowsWrap.style.display = 'none';
+  emptyEl.style.display = 'none';
+  infoEl.style.display = 'none';
+  rowsEl.innerHTML = '';
+  if (!supId) return;
+
+  const sup = getSup(supId);
+  const openDeals = allDeals.filter(d => d.supplierId === supId && d.status === 'OPEN');
+
+  if (!openDeals.length) { emptyEl.style.display = 'block'; return; }
+
+  // Show supplier info
+  infoEl.style.display = 'block';
+  infoEl.className = 'deal-info-box';
+  infoEl.innerHTML = `
+    <div class="dib-row">
+      <span class="dib-label">Supplier</span>
+      <span class="dib-val">${sup.name}</span>
+    </div>
+    <div class="dib-row">
+      <span class="dib-label">Open Deals</span>
+      <span class="dib-val">${openDeals.length} contract${openDeals.length > 1 ? 's' : ''}</span>
+    </div>`;
+
+  // Build rows
+  rowsEl.innerHTML = `
+    <div class="bd-row" style="background:#0f2044;color:white;border-color:#0f2044;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;padding:8px 12px;">
+      <div>SKU</div>
+      <div>Remaining</div>
+      <div>Rate</div>
+      <div>Qty Received</div>
+      <div>Row Notes</div>
+    </div>`;
+
+  openDeals.forEach(deal => {
+    const sku = getSku(deal.skuId);
+    const delivered = getDelivered(deal.id);
+    const remaining = (deal.totalQty || 0) - delivered;
+    const row = document.createElement('div');
+    row.className = 'bd-row';
+    row.dataset.dealId = deal.id;
+    row.innerHTML = `
+      <div>
+        <div class="bd-row-label">${sku.name}</div>
+        <div class="bd-row-sub">${sku.category}</div>
+      </div>
+      <div class="bd-row-rem">${fmtQ(remaining)} ${sku.unit||'kg'}</div>
+      <div class="bd-row-rate">₹${fmtN(deal.rate)}/${sku.unit||'kg'}</div>
+      <div>
+        <input type="number" id="bdr-qty-${deal.id}"
+          placeholder="Skip if not received"
+          min="0.01" step="0.01"
+          oninput="this.classList.toggle('has-value', this.value > 0)" />
+      </div>
+      <div>
+        <input type="text" id="bdr-notes-${deal.id}" placeholder="Optional" />
+      </div>`;
+    rowsEl.appendChild(row);
+
+    // Enter on qty → notes; Enter on notes → next row qty
+    const qtyInput   = row.querySelector(`#bdr-qty-${deal.id}`);
+    const notesInput = row.querySelector(`#bdr-notes-${deal.id}`);
+    qtyInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); notesInput.focus(); }
+    });
+    notesInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        // Move to next row's qty
+        const rows = document.querySelectorAll('.bd-row[data-deal-id]');
+        const idx = Array.from(rows).indexOf(row);
+        if (idx < rows.length - 1) {
+          const nextQty = rows[idx + 1].querySelector('input[type="number"]');
+          if (nextQty) nextQty.focus();
+        } else {
+          document.getElementById('bd-notes').focus();
+        }
+      }
+    });
+  });
+
+  rowsWrap.style.display = 'block';
+  // Focus first qty input
+  setTimeout(() => {
+    const firstQty = rowsEl.querySelector('input[type="number"]');
+    if (firstQty) firstQty.focus();
+  }, 100);
+}
+
+async function submitBulkDelivery() {
+  const supId  = document.getElementById('bd-sup').value;
+  const date   = document.getElementById('bd-date').value;
+  const commonNotes = document.getElementById('bd-notes').value.trim();
+  const alertEl = document.getElementById('bd-alert');
+  alertEl.style.display = 'none';
+
+  if (!supId || !date) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Please select a supplier and delivery date.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  // Collect filled rows
+  const entries = [];
+  let hasOverfulfill = false;
+  const rows = document.querySelectorAll('.bd-row[data-deal-id]');
+  rows.forEach(row => {
+    const dealId = row.dataset.dealId;
+    const qty = parseFloat(row.querySelector(`#bdr-qty-${dealId}`)?.value);
+    if (!qty || qty <= 0) return; // skip blank rows
+    const notes = row.querySelector(`#bdr-notes-${dealId}`)?.value.trim() || commonNotes;
+    const deal = allDeals.find(d => d.id === dealId);
+    const delivered = getDelivered(dealId);
+    const remaining = (deal.totalQty || 0) - delivered;
+    const sku = getSku(deal.skuId);
+    let newStatus = deal.status;
+    if (qty >= remaining) newStatus = qty > remaining ? 'OVERFULFILLED' : 'FULFILLED';
+    if (newStatus === 'OVERFULFILLED') hasOverfulfill = true;
+    entries.push({ dealId, qty, notes: notes || commonNotes, deal, sku, newStatus, remaining });
+  });
+
+  if (!entries.length) {
+    alertEl.className = 'alert alert-warn';
+    alertEl.textContent = 'No quantities entered. Please fill at least one row.';
+    alertEl.style.display = 'block';
+    return;
+  }
+
+  // Warn about overfulfillments
+  if (hasOverfulfill) {
+    const overItems = entries.filter(e => e.newStatus === 'OVERFULFILLED').map(e => e.sku.name).join(', ');
+    if (!confirm(`⚠ The following items exceed contract qty:\n${overItems}\n\nThey will be marked OVERFULFILLED. Proceed?`)) return;
+  }
+
+  try {
+    const batch = db.batch();
+    entries.forEach(({ dealId, qty, notes, deal, newStatus }) => {
+      const sup = getSup(deal.supplierId);
+      const sku = getSku(deal.skuId);
+      const delRef = db.collection('deliveries').doc();
+      batch.set(delRef, {
+        dealId, deliveryDate: date, qty,
+        notes: notes || commonNotes,
+        supplierName: sup.name,
+        skuId: deal.skuId,
+        skuName: sku.name,
+        skuUnit: sku.unit || 'kg',
+        dealRate: deal.rate,
+        createdBy: CU.username,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      if (newStatus !== deal.status) {
+        batch.update(db.collection('deals').doc(dealId), {
+          status: newStatus,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    });
+    await batch.commit();
+
+    alertEl.className = 'alert alert-success';
+    alertEl.textContent = `✓ ${entries.length} delivery record${entries.length > 1 ? 's' : ''} saved successfully!`;
+    alertEl.style.display = 'block';
+    setTimeout(() => { alertEl.style.display = 'none'; }, 5000);
+    await loadAll();
+    // Reset bulk form
+    document.getElementById('bd-sup').value = '';
+    document.getElementById('bd-rows-wrap').style.display = 'none';
+    document.getElementById('bd-sup-info').style.display = 'none';
+    document.getElementById('bd-rows').innerHTML = '';
+    setTimeout(() => {
+      const ssInput = document.querySelector('#bd-sup-ss-wrap input');
+      if (ssInput) { ssInput.value = ''; ssInput.focus(); }
+    }, 300);
+  } catch(e) {
+    alertEl.className = 'alert alert-error';
+    alertEl.textContent = 'Save error: ' + e.message;
+    alertEl.style.display = 'block';
+  }
+}
 // ══════════════════════════════════════════════
 function renderHistory() {
   const dels = CU.role === 'admin'
