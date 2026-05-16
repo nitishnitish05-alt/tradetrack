@@ -973,12 +973,17 @@ async function doLogin() {
     const snap = await db.collection('users').where('username', '==', u).where('password', '==', p).get();
     if (snap.empty) { errEl.textContent = 'Invalid username or password. Please try again.'; errEl.style.display = 'block'; return; }
     CU = { id: snap.docs[0].id, ...snap.docs[0].data() };
-    document.getElementById('login-screen').style.display = 'none';
-    const appEl = document.getElementById('app');
-    appEl.style.display = 'flex';
-    document.getElementById('tu-name').textContent = CU.username + ' (' + CU.role + ')';
-    await initApp();
+    // Save session so refresh doesn't log out
+    sessionStorage.setItem('tt_user', JSON.stringify(CU));
+    await showApp();
   } catch(e) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+}
+
+async function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('tu-name').textContent = CU.username + ' (' + CU.role + ')';
+  await initApp();
 }
 document.getElementById('lp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 document.getElementById('lu').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('lp').focus(); });
@@ -997,6 +1002,7 @@ function togglePw() {
 
 function doLogout() {
   CU = null;
+  sessionStorage.removeItem('tt_user');
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('lu').value = '';
@@ -1604,7 +1610,11 @@ function setupDeliveryForm() {
   document.getElementById('dd-qty').value = '';
   document.getElementById('dd-notes').value = '';
   document.getElementById('dd-alert').style.display = 'none';
-  setTimeout(() => { initSearchableSelect('dd-sel'); }, 100);
+  setTimeout(() => {
+    let a = 0;
+    function tryDD() { a++; if(document.getElementById('dd-sel')) initSearchableSelect('dd-sel'); else if(a<5) setTimeout(tryDD,100); }
+    tryDD();
+  }, 150);
 }
 
 function onDealSel() {
@@ -1718,9 +1728,17 @@ function setupBulkDeliveryForm() {
   document.getElementById('bd-sup-info').style.display = 'none';
   document.getElementById('bd-rows').innerHTML = '';
   document.getElementById('bd-alert').style.display = 'none';
-  setTimeout(() => initSearchableSelect('bd-sup', () => {
-    setTimeout(onBulkDeliverySupplierSel, 50);
-  }), 100);
+  // Use longer timeout + retry to ensure DOM is ready
+  let attempts = 0;
+  function tryInit() {
+    attempts++;
+    const el = document.getElementById('bd-sup');
+    if (!el) { if (attempts < 5) setTimeout(tryInit, 100); return; }
+    initSearchableSelect('bd-sup', () => {
+      setTimeout(onBulkDeliverySupplierSel, 50);
+    });
+  }
+  setTimeout(tryInit, 150);
 }
 
 function onBulkDeliverySupplierSel() {
@@ -2331,7 +2349,11 @@ function setupIssueForm() {
   document.getElementById('ip-notes').value = '';
   document.getElementById('ip-alert').style.display = 'none';
   document.getElementById('ip-stock-info').style.display = 'none';
-  setTimeout(() => { initSearchableSelect('ip-sku'); }, 100);
+  setTimeout(() => {
+    let a = 0;
+    function tryIP() { a++; if(document.getElementById('ip-sku')) initSearchableSelect('ip-sku'); else if(a<5) setTimeout(tryIP,100); }
+    tryIP();
+  }, 150);
 }
 
 function onIssueSkuSel() {
@@ -2704,7 +2726,27 @@ function initKeyboard() {
 }
 
 // ══════════════════════════════════════════════
-// SERVICE WORKER REGISTRATION
+// SESSION RESTORE ON PAGE LOAD
+// ══════════════════════════════════════════════
+window.addEventListener('load', async () => {
+  const saved = sessionStorage.getItem('tt_user');
+  if (saved) {
+    try {
+      CU = JSON.parse(saved);
+      // Verify user still exists in Firestore
+      const snap = await db.collection('users').doc(CU.id).get();
+      if (snap.exists) {
+        CU = { id: snap.id, ...snap.data() };
+        sessionStorage.setItem('tt_user', JSON.stringify(CU));
+        await showApp();
+      } else {
+        sessionStorage.removeItem('tt_user');
+      }
+    } catch(e) {
+      sessionStorage.removeItem('tt_user');
+    }
+  }
+});
 // ══════════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
