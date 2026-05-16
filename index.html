@@ -2543,9 +2543,13 @@ function toggleUmPw() {
 function initSearchableSelect(selectId, onSelectCallback) {
   const select = document.getElementById(selectId);
   if (!select) return;
-  // Remove existing wrapper if any
+
+  // If a wrapper already exists, move select OUT first, then remove wrapper
   const existingWrap = document.getElementById(selectId + '-ss-wrap');
-  if (existingWrap) existingWrap.remove();
+  if (existingWrap) {
+    existingWrap.parentNode.insertBefore(select, existingWrap);
+    existingWrap.remove();
+  }
   select.style.display = 'none';
 
   const wrap = document.createElement('div');
@@ -2558,7 +2562,7 @@ function initSearchableSelect(selectId, onSelectCallback) {
   input.placeholder = select.options[0]?.text || 'Search...';
   input.autocomplete = 'off';
 
-  // Show selected value
+  // Show selected value if any
   const selectedOpt = select.options[select.selectedIndex];
   if (selectedOpt && selectedOpt.value) input.value = selectedOpt.text;
 
@@ -2598,7 +2602,6 @@ function initSearchableSelect(selectId, onSelectCallback) {
     select.value = opt.value;
     input.value = opt.text;
     if (dropdown) { dropdown.remove(); dropdown = null; }
-    // Fire onchange on the original select
     select.dispatchEvent(new Event('change'));
     if (onSelectCallback) onSelectCallback(opt.value);
   }
@@ -2641,7 +2644,6 @@ function initSearchableSelect(selectId, onSelectCallback) {
   });
   input.addEventListener('blur', () => {
     setTimeout(() => { if (dropdown) { dropdown.remove(); dropdown = null; } }, 200);
-    // If input doesn't match any option, revert to selected or clear
     const opts = getOptions('');
     const match = opts.find(o => o.text === input.value);
     if (!match) {
@@ -2654,7 +2656,8 @@ function initSearchableSelect(selectId, onSelectCallback) {
     }
   });
 
-  select.parentNode.insertBefore(wrap, select.nextSibling);
+  // Insert wrap where select currently is, then move select inside wrap
+  select.parentNode.insertBefore(wrap, select);
   wrap.appendChild(input);
   wrap.appendChild(select);
 }
