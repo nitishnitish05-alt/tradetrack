@@ -1244,6 +1244,8 @@ function renderDeals() {
       <td style="white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="viewDeal('${deal.id}')">View</button>
         ${deal.status==='OPEN'?`<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>`:''}
+        ${deal.status==='OPEN'||deal.status==='OVERFULFILLED'?`<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>`:''}
+        ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED'?`<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>`:''}
         <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
       </td>
     </tr>`;
@@ -1446,6 +1448,43 @@ async function deleteDeal(id) {
   } catch(e) { alert('Delete error: ' + e.message); }
 }
 
+async function markDealFulfilled(id, fromModal) {
+  const deal = allDeals.find(d => d.id === id);
+  if (!deal) return;
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  const delivered = getDelivered(id);
+  const remaining = (deal.totalQty || 0) - delivered;
+  if (!confirm(`Mark this deal as FULFILLED?\n\n${sup.name} — ${sku.name}\nDelivered: ${fmtQ(delivered)} ${sku.unit||'kg'}\nShort by: ${fmtQ(remaining)} ${sku.unit||'kg'}\n\nThe deal will be closed. You can reopen it later if needed.`)) return;
+  try {
+    await db.collection('deals').doc(id).update({
+      status: 'FULFILLED',
+      closedManually: true,
+      closedBy: CU.username,
+      closedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    if (fromModal) closeOverlay('modal-detail');
+    await loadAll();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function reopenDeal(id, fromModal) {
+  const deal = allDeals.find(d => d.id === id);
+  if (!deal) return;
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  if (!confirm(`Reopen this deal?\n\n${sup.name} — ${sku.name}\nStatus: ${deal.status}\n\nIt will return to OPEN and appear in pending contracts.`)) return;
+  try {
+    await db.collection('deals').doc(id).update({
+      status: 'OPEN',
+      reopenedBy: CU.username,
+      reopenedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    if (fromModal) closeOverlay('modal-detail');
+    await loadAll();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
 function viewDeal(id) {
   const deal = allDeals.find(d => d.id === id);
   if (!deal) return;
@@ -1475,6 +1514,13 @@ function viewDeal(id) {
       Total Contract Value: <strong>₹${fmtN(Math.round(totalVal))}</strong>
       ${deal.notes ? '&nbsp;·&nbsp;Notes: <strong>' + deal.notes + '</strong>' : ''}
     </div>
+    ${CU.role==='admin' ? `
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      ${deal.status==='OPEN'||deal.status==='OVERFULFILLED' ? `
+        <button class="btn btn-green" onclick="markDealFulfilled('${id}',true)">✓ Mark as Fulfilled</button>` : ''}
+      ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED' ? `
+        <button class="btn btn-outline" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${id}',true)">↺ Reopen Deal</button>` : ''}
+    </div>` : ''}
     <div class="dl-deliveries">
       <div class="dl-deliveries-title">Delivery Log (${dels.length} entries)</div>
       ${dels.length ? dels.map(d => `
@@ -1598,13 +1644,21 @@ function setupDeliveryForm() {
   if (deliveryMode === 'bulk') { setupBulkDeliveryForm(); return; }
 
   const openDeals = allDeals.filter(d => d.status === 'OPEN');
+  const fulfilledDeals = allDeals.filter(d => d.status === 'FULFILLED' || d.status === 'OVERFULFILLED');
   const sel = document.getElementById('dd-sel');
   sel.innerHTML = '<option value="">— Choose a Deal —</option>' +
+    '<optgroup label="Open Deals">' +
     openDeals.map(deal => {
       const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
       const rem = (deal.totalQty || 0) - getDelivered(deal.id);
       return `<option value="${deal.id}">${sup.name} | ${sku.name} | Rem: ${fmtQ(rem)} ${sku.unit||'kg'} @ ₹${deal.rate}</option>`;
-    }).join('');
+    }).join('') +
+    '</optgroup>' +
+    (fulfilledDeals.length ? '<optgroup label="Closed Deals (will reopen)">' +
+    fulfilledDeals.map(deal => {
+      const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+      return `<option value="${deal.id}">[CLOSED] ${sup.name} | ${sku.name} @ ₹${deal.rate}</option>`;
+    }).join('') + '</optgroup>' : '');
   document.getElementById('dd-info').style.display = 'none';
   document.getElementById('dd-date').value = today();
   document.getElementById('dd-qty').value = '';
@@ -1626,9 +1680,13 @@ function onDealSel() {
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const delivered = getDelivered(deal.id);
   const remaining = (deal.totalQty || 0) - delivered;
+  const isClosed = deal.status === 'FULFILLED' || deal.status === 'OVERFULFILLED';
   infoEl.style.display = 'block';
   infoEl.className = 'deal-info-box';
   infoEl.innerHTML = `
+    ${isClosed ? `<div style="background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:600;color:#92400e;">
+      ⚠ This deal is marked ${deal.status}. Recording a delivery will automatically reopen it to OPEN.
+    </div>` : ''}
     <div class="dib-row"><span class="dib-label">Supplier</span><span class="dib-val">${sup.name}</span></div>
     <div class="dib-row"><span class="dib-label">SKU</span><span class="dib-val">${sku.name} (${sku.category})</span></div>
     <div class="dib-row"><span class="dib-label">⚠ Contracted Rate</span><span class="dib-val" style="color:#dc2626;font-size:15px;">₹${fmtN(deal.rate)} / ${sku.unit||'kg'}</span></div>
@@ -1651,14 +1709,19 @@ async function submitDelivery() {
   const sku = getSku(deal.skuId);
   const delivered = getDelivered(dealId);
   const remaining = (deal.totalQty || 0) - delivered;
+  const isClosed = deal.status === 'FULFILLED' || deal.status === 'OVERFULFILLED';
 
-  let newStatus = deal.status;
-  if (qty >= remaining) {
-    if (qty > remaining) {
-      if (!confirm(`⚠ Warning: Delivery qty (${fmtQ(qty)} ${sku.unit||'kg'}) exceeds remaining contract qty (${fmtQ(remaining)} ${sku.unit||'kg'}).\n\nThis will mark the deal as OVERFULFILLED. Proceed?`)) return;
-      newStatus = 'OVERFULFILLED';
-    } else {
-      newStatus = 'FULFILLED';
+  // Auto-reopen if delivery logged against a closed deal
+  if (isClosed) {
+    if (!confirm(`⚠ This deal is currently ${deal.status}.\n\nRecording this delivery will reopen it to OPEN status. Proceed?`)) return;
+  }
+
+  let newStatus = 'OPEN';
+  const totalDelivered = delivered + qty;
+  if (totalDelivered >= deal.totalQty) {
+    newStatus = totalDelivered > deal.totalQty ? 'OVERFULFILLED' : 'FULFILLED';
+    if (newStatus === 'OVERFULFILLED' && !isClosed) {
+      if (!confirm(`⚠ Delivery qty (${fmtQ(qty)} ${sku.unit||'kg'}) exceeds remaining (${fmtQ(remaining)} ${sku.unit||'kg'}).\n\nDeal will be marked OVERFULFILLED. Proceed?`)) return;
     }
   }
 
@@ -1755,8 +1818,10 @@ function onBulkDeliverySupplierSel() {
 
   const sup = getSup(supId);
   const openDeals = allDeals.filter(d => d.supplierId === supId && d.status === 'OPEN');
+  const closedDeals = allDeals.filter(d => d.supplierId === supId && (d.status === 'FULFILLED' || d.status === 'OVERFULFILLED'));
+  const allSupDeals = [...openDeals, ...closedDeals];
 
-  if (!openDeals.length) { emptyEl.style.display = 'block'; return; }
+  if (!allSupDeals.length) { emptyEl.style.display = 'block'; return; }
 
   // Show supplier info
   infoEl.style.display = 'block';
@@ -1768,8 +1833,9 @@ function onBulkDeliverySupplierSel() {
     </div>
     <div class="dib-row">
       <span class="dib-label">Open Deals</span>
-      <span class="dib-val">${openDeals.length} contract${openDeals.length > 1 ? 's' : ''}</span>
-    </div>`;
+      <span class="dib-val">${openDeals.length} open · ${closedDeals.length} closed</span>
+    </div>
+    ${closedDeals.length ? `<div style="font-size:11px;color:#d97706;margin-top:4px;">⚠ Closed deals shown below — entering qty will reopen them automatically.</div>` : ''}`;
 
   // Build rows
   rowsEl.innerHTML = `
@@ -1781,23 +1847,26 @@ function onBulkDeliverySupplierSel() {
       <div>Row Notes</div>
     </div>`;
 
-  openDeals.forEach(deal => {
+  allSupDeals.forEach(deal => {
     const sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
     const remaining = (deal.totalQty || 0) - delivered;
+    const isClosed = deal.status !== 'OPEN';
     const row = document.createElement('div');
     row.className = 'bd-row';
     row.dataset.dealId = deal.id;
+    row.dataset.isClosed = isClosed ? '1' : '0';
+    if (isClosed) row.style.opacity = '0.75';
     row.innerHTML = `
       <div>
-        <div class="bd-row-label">${sku.name}</div>
+        <div class="bd-row-label">${sku.name}${isClosed ? ' <span style="color:#d97706;font-size:10px;">[CLOSED]</span>' : ''}</div>
         <div class="bd-row-sub">${sku.category}</div>
       </div>
       <div class="bd-row-rem">${fmtQ(remaining)} ${sku.unit||'kg'}</div>
       <div class="bd-row-rate">₹${fmtN(deal.rate)}/${sku.unit||'kg'}</div>
       <div>
         <input type="number" id="bdr-qty-${deal.id}"
-          placeholder="Skip if not received"
+          placeholder="${isClosed ? 'Leave blank or enter to reopen' : 'Skip if not received'}"
           min="0.01" step="0.01"
           oninput="this.classList.toggle('has-value', this.value > 0)" />
       </div>
