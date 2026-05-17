@@ -1055,7 +1055,7 @@ function buildNav() {
     el.className = 'nav-tab' + (i === 0 ? ' active' : '');
     el.textContent = t.label;
     el.dataset.tab = t.id;
-    el.onclick = () => switchTab(t.id);
+    el.onclick = () => switchTab(t.id, true);
     nav.appendChild(el);
 
     // Mobile bottom tab
@@ -1063,14 +1063,14 @@ function buildNav() {
     bel.className = 'bnav-tab' + (i === 0 ? ' active' : '');
     bel.dataset.tab = t.id;
     bel.innerHTML = `<span class="bnav-icon">${iconMap[t.id] || '•'}</span><span>${shortLabel[t.id] || t.id}</span>`;
-    bel.onclick = () => switchTab(t.id);
+    bel.onclick = () => switchTab(t.id, true);
     bnav.appendChild(bel);
   });
 
   switchTab(tabs[0].id);
 }
 
-function switchTab(id) {
+function switchTab(id, scrollToTop) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
   document.querySelectorAll('.bnav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + id));
@@ -1086,7 +1086,8 @@ function switchTab(id) {
   if (id === 'opr-history') renderOprHistory();
   if (id === 'issue-production') setupIssueForm();
   if (id === 'opr-issues') renderOprIssues();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Only scroll to top when user explicitly clicks a tab
+  if (scrollToTop) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ══════════════════════════════════════════════
@@ -1439,12 +1440,14 @@ async function deleteDeal(id) {
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const numDels = getDels(id).length;
   if (!confirm(`Delete deal:\n${sup.name} – ${sku.name}\n${fmtQ(deal.totalQty)} ${sku.unit||'kg'} @ ₹${deal.rate}\n\nThis will also delete ${numDels} delivery record(s). Cannot be undone.`)) return;
+  const scrollY = window.scrollY;
   try {
     const batch = db.batch();
     batch.delete(db.collection('deals').doc(id));
     getDels(id).forEach(d => batch.delete(db.collection('deliveries').doc(d.id)));
     await batch.commit();
     await loadAll();
+    window.scrollTo({ top: scrollY });
   } catch(e) { alert('Delete error: ' + e.message); }
 }
 
@@ -1455,6 +1458,7 @@ async function markDealFulfilled(id, fromModal) {
   const delivered = getDelivered(id);
   const remaining = (deal.totalQty || 0) - delivered;
   if (!confirm(`Mark this deal as FULFILLED?\n\n${sup.name} — ${sku.name}\nDelivered: ${fmtQ(delivered)} ${sku.unit||'kg'}\nShort by: ${fmtQ(remaining)} ${sku.unit||'kg'}\n\nThe deal will be closed. You can reopen it later if needed.`)) return;
+  const scrollY = window.scrollY;
   try {
     await db.collection('deals').doc(id).update({
       status: 'FULFILLED',
@@ -1465,6 +1469,7 @@ async function markDealFulfilled(id, fromModal) {
     });
     if (fromModal) closeOverlay('modal-detail');
     await loadAll();
+    if (!fromModal) window.scrollTo({ top: scrollY });
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -1473,6 +1478,7 @@ async function reopenDeal(id, fromModal) {
   if (!deal) return;
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   if (!confirm(`Reopen this deal?\n\n${sup.name} — ${sku.name}\nStatus: ${deal.status}\n\nIt will return to OPEN and appear in pending contracts.`)) return;
+  const scrollY = window.scrollY;
   try {
     await db.collection('deals').doc(id).update({
       status: 'OPEN',
@@ -1482,6 +1488,7 @@ async function reopenDeal(id, fromModal) {
     });
     if (fromModal) closeOverlay('modal-detail');
     await loadAll();
+    if (!fromModal) window.scrollTo({ top: scrollY });
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -2753,10 +2760,10 @@ function initKeyboard() {
       switch(e.key.toLowerCase()) {
         case 'n': e.preventDefault(); openDealModal(); break;
         case 'b': e.preventDefault(); openBulkDealModal(); break;
-        case 'd': e.preventDefault(); switchTab('add-delivery'); break;
-        case 'i': e.preventDefault(); switchTab('issue-production'); break;
-        case 's': e.preventDefault(); if(CU.role==='admin') switchTab('stock'); break;
-        case 'u': e.preventDefault(); if(CU.role==='admin') switchTab('users'); break;
+        case 'd': e.preventDefault(); switchTab('add-delivery', true); break;
+        case 'i': e.preventDefault(); switchTab('issue-production', true); break;
+        case 's': e.preventDefault(); if(CU.role==='admin') switchTab('stock', true); break;
+        case 'u': e.preventDefault(); if(CU.role==='admin') switchTab('users', true); break;
       }
     }
   });
