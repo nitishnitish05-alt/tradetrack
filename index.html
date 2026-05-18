@@ -282,6 +282,37 @@
       border: 1px solid rgba(255,255,255,0.2); margin-right: 3px;
     }
     @media (max-width: 768px) { #kb-hints { display: none; } }
+    /* ── Deals Search Bars ── */
+    .deals-search-input {
+      width: 100%; padding: 9px 32px 9px 13px;
+      border: 2px solid #e8edf3; border-radius: 10px;
+      font-size: 14px; outline: none; color: #1e293b;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      font-family: inherit;
+    }
+    .deals-search-input:focus { border-color: #1565c0; box-shadow: 0 0 0 3px rgba(21,101,192,0.1); }
+    .deals-search-clear {
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; color: #94a3b8;
+      font-size: 18px; line-height: 1; padding: 2px 4px;
+      transition: color 0.15s;
+    }
+    .deals-search-clear:hover { color: #dc2626; }
+    .deals-search-drop {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 300;
+      background: white; border: 2px solid #1565c0; border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12); max-height: 200px; overflow-y: auto;
+      display: none;
+    }
+    .deals-search-drop.open { display: block; }
+    .dsd-item {
+      padding: 9px 14px; font-size: 13px; cursor: pointer; color: #1e293b;
+      border-bottom: 1px solid #f1f5f9; transition: background 0.1s;
+    }
+    .dsd-item:last-child { border-bottom: none; }
+    .dsd-item:hover, .dsd-item.active { background: #f0f7ff; color: #1565c0; font-weight: 600; }
+    .dsd-count { font-size: 11px; color: #94a3b8; float: right; }
+
     /* ── Mobile/Desktop visibility utilities ── */
     .mobile-only { display: none; }
     .desktop-only { display: block; }
@@ -609,7 +640,8 @@
           <button class="btn btn-blue" onclick="openDealModal()">+ Single Deal</button>
         </div>
       </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
+      <!-- Filter + Sort row -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
         <div class="filter-row" id="deals-filter" style="margin-bottom:0;">
           <button class="ftab active" onclick="setFilter('all',this)">All</button>
           <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
@@ -621,6 +653,23 @@
           <button class="ftab active" id="ds-date" onclick="setDealsSort('date',this)">Date</button>
           <button class="ftab" id="ds-supplier" onclick="setDealsSort('supplier',this)">Supplier</button>
           <button class="ftab" id="ds-sku" onclick="setDealsSort('sku',this)">SKU</button>
+        </div>
+      </div>
+      <!-- Search row -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="deals-search-wrap" style="flex:1;min-width:180px;position:relative;">
+          <input type="text" id="deals-sku-search" class="deals-search-input"
+            placeholder="🔍 Search SKU..." autocomplete="off"
+            oninput="onDealsSearch()" onfocus="showDealsSearchDrop('sku')" />
+          <button class="deals-search-clear" id="deals-sku-clear" onclick="clearDealsSearch('sku')" style="display:none;">×</button>
+          <div class="deals-search-drop" id="deals-sku-drop"></div>
+        </div>
+        <div class="deals-search-wrap" style="flex:1;min-width:180px;position:relative;">
+          <input type="text" id="deals-sup-search" class="deals-search-input"
+            placeholder="🔍 Search Supplier..." autocomplete="off"
+            oninput="onDealsSearch()" onfocus="showDealsSearchDrop('sup')" />
+          <button class="deals-search-clear" id="deals-sup-clear" onclick="clearDealsSearch('sup')" style="display:none;">×</button>
+          <div class="deals-search-drop" id="deals-sup-drop"></div>
         </div>
       </div>
       <!-- Desktop: table -->
@@ -1108,6 +1157,7 @@ let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers
 let allStockOpening = [], allStockIssues = [];
 let dealsFilter = 'all';
 let dbSort = 'date', dealsSort = 'date'; // sort state
+let dealsSkuSearch = '', dealsSupSearch = ''; // search state
 
 // ══════════════════════════════════════════════
 // AUTH
@@ -1388,6 +1438,94 @@ function jumpToDeals(status) {
 }
 
 // ══════════════════════════════════════════════
+// DEALS SEARCH
+// ══════════════════════════════════════════════
+function onDealsSearch() {
+  dealsSkuSearch = (document.getElementById('deals-sku-search')?.value || '').trim().toLowerCase();
+  dealsSupSearch = (document.getElementById('deals-sup-search')?.value || '').trim().toLowerCase();
+  document.getElementById('deals-sku-clear').style.display = dealsSkuSearch ? 'block' : 'none';
+  document.getElementById('deals-sup-clear').style.display = dealsSupSearch ? 'block' : 'none';
+  renderDeals();
+}
+
+function showDealsSearchDrop(type) {
+  const isSkU = type === 'sku';
+  const inputId = isSkU ? 'deals-sku-search' : 'deals-sup-search';
+  const dropId  = isSkU ? 'deals-sku-drop'   : 'deals-sup-drop';
+  const val = (document.getElementById(inputId)?.value || '').trim().toLowerCase();
+  const drop = document.getElementById(dropId);
+  if (!drop) return;
+
+  // Close the other dropdown
+  const otherDrop = document.getElementById(isSkU ? 'deals-sup-drop' : 'deals-sku-drop');
+  if (otherDrop) otherDrop.classList.remove('open');
+
+  // Build unique list from current filter's deals
+  let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  let items;
+  if (isSkU) {
+    const seen = new Set();
+    items = deals.map(d => getSku(d.skuId).name).filter(n => { if (seen.has(n)) return false; seen.add(n); return true; }).sort();
+    if (val) items = items.filter(n => n.toLowerCase().includes(val));
+  } else {
+    const seen = new Set();
+    items = deals.map(d => getSup(d.supplierId).name).filter(n => { if (seen.has(n)) return false; seen.add(n); return true; }).sort();
+    if (val) items = items.filter(n => n.toLowerCase().includes(val));
+  }
+
+  if (!items.length) { drop.classList.remove('open'); return; }
+
+  // Count deals per item
+  drop.innerHTML = items.map(name => {
+    const count = deals.filter(d => isSkU
+      ? getSku(d.skuId).name === name
+      : getSup(d.supplierId).name === name
+    ).length;
+    return `<div class="dsd-item" onmousedown="selectDealsSearch('${type}','${name.replace(/'/g,"\\'")}')">
+      ${name}<span class="dsd-count">${count} deal${count>1?'s':''}</span>
+    </div>`;
+  }).join('');
+  drop.classList.add('open');
+}
+
+function selectDealsSearch(type, name) {
+  if (type === 'sku') {
+    document.getElementById('deals-sku-search').value = name;
+    dealsSkuSearch = name.toLowerCase();
+    document.getElementById('deals-sku-clear').style.display = 'block';
+    document.getElementById('deals-sku-drop').classList.remove('open');
+  } else {
+    document.getElementById('deals-sup-search').value = name;
+    dealsSupSearch = name.toLowerCase();
+    document.getElementById('deals-sup-clear').style.display = 'block';
+    document.getElementById('deals-sup-drop').classList.remove('open');
+  }
+  renderDeals();
+}
+
+function clearDealsSearch(type) {
+  if (type === 'sku') {
+    document.getElementById('deals-sku-search').value = '';
+    dealsSkuSearch = '';
+    document.getElementById('deals-sku-clear').style.display = 'none';
+    document.getElementById('deals-sku-drop').classList.remove('open');
+  } else {
+    document.getElementById('deals-sup-search').value = '';
+    dealsSupSearch = '';
+    document.getElementById('deals-sup-clear').style.display = 'none';
+    document.getElementById('deals-sup-drop').classList.remove('open');
+  }
+  renderDeals();
+}
+
+// Close dropdowns when clicking elsewhere
+document.addEventListener('click', e => {
+  if (!e.target.closest('.deals-search-wrap')) {
+    document.querySelectorAll('.deals-search-drop').forEach(d => d.classList.remove('open'));
+  }
+});
+
+// ══════════════════════════════════════════════
 // SORT HELPERS
 // ══════════════════════════════════════════════
 function sortDeals(deals, sortKey) {
@@ -1473,12 +1611,19 @@ function setFilter(f, btn) {
 
 function renderDeals() {
   let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  // Apply SKU search filter
+  if (dealsSkuSearch) deals = deals.filter(d => getSku(d.skuId).name.toLowerCase().includes(dealsSkuSearch));
+  // Apply Supplier search filter
+  if (dealsSupSearch) deals = deals.filter(d => getSup(d.supplierId).name.toLowerCase().includes(dealsSupSearch));
   deals = sortDeals(deals, dealsSort);
   const tbody = document.getElementById('deals-tbody');
   const cards = document.getElementById('deals-cards');
+  const emptyMsg = (dealsSkuSearch || dealsSupSearch)
+    ? `No deals found matching "${dealsSkuSearch || dealsSupSearch}"`
+    : 'No deals found';
   if (!deals.length) {
-    tbody.innerHTML = emptyRow(10, 'No deals found');
-    if (cards) cards.innerHTML = '<div class="empty"><div class="ei">📋</div><p>No deals found</p></div>';
+    tbody.innerHTML = emptyRow(10, emptyMsg);
+    if (cards) cards.innerHTML = `<div class="empty"><div class="ei">🔍</div><p>${emptyMsg}</p></div>`;
     return;
   }
   tbody.innerHTML = deals.map(deal => {
