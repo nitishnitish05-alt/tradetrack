@@ -282,7 +282,83 @@
       border: 1px solid rgba(255,255,255,0.2); margin-right: 3px;
     }
     @media (max-width: 768px) { #kb-hints { display: none; } }
-    /* Bulk Delivery Rows */
+    /* ── Mobile/Desktop visibility utilities ── */
+    .mobile-only { display: none; }
+    .desktop-only { display: block; }
+
+    /* ── Deal Cards (mobile) ── */
+    .deal-card {
+      background: white; border-radius: 14px; padding: 16px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin-bottom: 12px;
+      border-left: 4px solid #1565c0; position: relative;
+    }
+    .deal-card.fulfilled { border-left-color: #16a34a; }
+    .deal-card.overfulfilled { border-left-color: #dc2626; }
+    .deal-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .deal-card-date { font-size: 11px; color: #94a3b8; font-weight: 600; }
+    .deal-card-supplier { font-size: 16px; font-weight: 800; color: #0f2044; margin-bottom: 2px; }
+    .deal-card-sku { font-size: 13px; color: #64748b; margin-bottom: 10px; }
+    .deal-card-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .deal-card-stat { background: #f8fafc; border-radius: 8px; padding: 8px 10px; }
+    .deal-card-stat-label { font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.4px; }
+    .deal-card-stat-val { font-size: 14px; font-weight: 800; color: #0f2044; margin-top: 2px; }
+    .deal-card-stat-val.red { color: #dc2626; }
+    .deal-card-stat-val.green { color: #16a34a; }
+    .deal-card-progress { margin-bottom: 12px; }
+    .deal-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .deal-card-actions .btn { flex: 1; justify-content: center; min-width: 60px; font-size: 12px; padding: 8px 10px; }
+
+    /* ── Stat cards tappable on mobile ── */
+    .stat-card.tappable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+    .stat-card.tappable:active { transform: scale(0.97); box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+
+    /* ── FAB ── */
+    #fab-container {
+      position: fixed; bottom: 72px; right: 16px; z-index: 140;
+      display: none; flex-direction: column; align-items: flex-end; gap: 10px;
+    }
+    #fab-btn {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: linear-gradient(135deg, #0f2044, #1565c0);
+      color: white; border: none; font-size: 28px; font-weight: 300;
+      box-shadow: 0 4px 20px rgba(21,101,192,0.45);
+      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #fab-btn.open { transform: rotate(45deg); background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    #fab-btn:active { transform: scale(0.93); }
+    #fab-menu { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .fab-item {
+      display: flex; align-items: center; gap: 10px;
+      animation: fabIn 0.15s ease;
+    }
+    .fab-item-label {
+      background: #0f2044; color: white; padding: 6px 14px;
+      border-radius: 20px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2); white-space: nowrap;
+    }
+    .fab-item-btn {
+      width: 44px; height: 44px; border-radius: 50%; border: none;
+      background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    @keyframes fabIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.9); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    #fab-overlay {
+      display: none; position: fixed; inset: 0; z-index: 139;
+      background: rgba(0,0,0,0.3); backdrop-filter: blur(2px);
+    }
+
+    @media (max-width: 768px) {
+      .mobile-only { display: block; }
+      .desktop-only { display: none; }
+      #fab-container { display: flex; }
+      #fab-overlay.open { display: block; }
+    }
     .bd-row {
       display: grid;
       grid-template-columns: 2fr 1fr 1fr 2fr 1.5fr;
@@ -483,18 +559,19 @@
           <div class="ph-title">📊 Dashboard</div>
           <div class="ph-sub">Overview of all procurement contracts</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" class="desktop-only">
           <button class="btn btn-outline" onclick="openBulkDealModal()">+ Bulk Deal</button>
           <button class="btn btn-blue" onclick="openDealModal()">+ Single Deal</button>
         </div>
       </div>
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-label">Open Deals</div><div class="stat-value" id="s-open">—</div><div class="stat-sub">Active contracts</div></div>
-        <div class="stat-card g"><div class="stat-label">Fulfilled</div><div class="stat-value" id="s-fulfilled">—</div><div class="stat-sub">Completed</div></div>
+        <div class="stat-card tappable" onclick="jumpToDeals('OPEN')"><div class="stat-label">Open Deals</div><div class="stat-value" id="s-open">—</div><div class="stat-sub">Tap to view</div></div>
+        <div class="stat-card g tappable" onclick="jumpToDeals('FULFILLED')"><div class="stat-label">Fulfilled</div><div class="stat-value" id="s-fulfilled">—</div><div class="stat-sub">Tap to view</div></div>
         <div class="stat-card a"><div class="stat-label">Pending Value</div><div class="stat-value" id="s-value">—</div><div class="stat-sub">₹ outstanding</div></div>
-        <div class="stat-card r"><div class="stat-label">Overfulfilled</div><div class="stat-value" id="s-over">—</div><div class="stat-sub">Excess delivery</div></div>
+        <div class="stat-card r tappable" onclick="jumpToDeals('OVERFULFILLED')"><div class="stat-label">Overfulfilled</div><div class="stat-value" id="s-over">—</div><div class="stat-sub">Tap to view</div></div>
       </div>
-      <div class="card">
+      <!-- Desktop: table -->
+      <div class="card desktop-only">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
           <div style="font-size:14px;font-weight:700;color:#0f2044;">Open Contracts</div>
           <div class="filter-row" style="margin-bottom:0;">
@@ -509,13 +586,25 @@
           <tbody id="db-tbody"></tbody>
         </table></div>
       </div>
+      <!-- Mobile: cards -->
+      <div class="mobile-only">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:14px;font-weight:700;color:#0f2044;">Open Contracts</div>
+          <div class="filter-row" style="margin-bottom:0;">
+            <button class="ftab active" id="dbs-date-m" onclick="setDbSort('date',this);document.getElementById('dbs-date').classList.remove('active');">Date</button>
+            <button class="ftab" id="dbs-sup-m" onclick="setDbSort('supplier',this);document.getElementById('dbs-supplier').classList.remove('active');">Supplier</button>
+            <button class="ftab" id="dbs-sku-m" onclick="setDbSort('sku',this);document.getElementById('dbs-sku').classList.remove('active');">SKU</button>
+          </div>
+        </div>
+        <div id="db-cards"></div>
+      </div>
     </div>
 
     <!-- ── DEALS ── -->
     <div class="panel" id="panel-deals">
       <div class="ph">
         <div><div class="ph-title">📝 All Deals</div><div class="ph-sub">Manage purchase contracts</div></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" class="desktop-only">
           <button class="btn btn-outline" onclick="openBulkDealModal()">+ Bulk Deal</button>
           <button class="btn btn-blue" onclick="openDealModal()">+ Single Deal</button>
         </div>
@@ -525,7 +614,7 @@
           <button class="ftab active" onclick="setFilter('all',this)">All</button>
           <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
           <button class="ftab" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
-          <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Overfulfilled</button>
+          <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Over</button>
         </div>
         <div class="filter-row" style="margin-bottom:0;">
           <span style="font-size:11px;color:#94a3b8;font-weight:600;">SORT:</span>
@@ -534,10 +623,13 @@
           <button class="ftab" id="ds-sku" onclick="setDealsSort('sku',this)">SKU</button>
         </div>
       </div>
-      <div class="card"><div class="tbl-wrap"><table>
+      <!-- Desktop: table -->
+      <div class="card desktop-only"><div class="tbl-wrap"><table>
         <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Category</th><th>Rate (₹)</th><th>Total Qty</th><th>Delivered</th><th>Remaining</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="deals-tbody"></tbody>
       </table></div></div>
+      <!-- Mobile: cards -->
+      <div id="deals-cards" class="mobile-only"></div>
     </div>
 
     <!-- ── SUPPLIERS ── -->
@@ -556,7 +648,15 @@
     <div class="panel" id="panel-skus">
       <div class="ph">
         <div><div class="ph-title">📦 SKUs / Products</div><div class="ph-sub">Raw materials and packaging SKUs</div></div>
-        <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge Duplicates</button>
+          <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
+        </div>
+      </div>
+      <div class="filter-row" id="sku-sort-row" style="margin-bottom:16px;">
+        <span style="font-size:11px;color:#94a3b8;font-weight:600;">SORT:</span>
+        <button class="ftab active" id="skus-name" onclick="setSkuSort('name',this)">Name (A→Z)</button>
+        <button class="ftab" id="skus-cat" onclick="setSkuSort('category',this)">Category</button>
       </div>
       <div class="card"><div class="tbl-wrap"><table>
         <thead><tr><th>SKU Name</th><th>Category</th><th>Unit</th><th>Actions</th></tr></thead>
@@ -756,6 +856,32 @@
   <span><kbd>Enter</kbd> Next field / Save</span>
 </div>
 
+<!-- FAB overlay (closes menu on outside tap) -->
+<div id="fab-overlay" onclick="closeFab()"></div>
+
+<!-- FAB container -->
+<div id="fab-container">
+  <div id="fab-menu" style="display:none;">
+    <div class="fab-item">
+      <div class="fab-item-label">Issue to Production</div>
+      <button class="fab-item-btn" onclick="closeFab();switchTab('issue-production',true);">🏭</button>
+    </div>
+    <div class="fab-item">
+      <div class="fab-item-label">Add Delivery</div>
+      <button class="fab-item-btn" onclick="closeFab();switchTab('add-delivery',true);">🚚</button>
+    </div>
+    <div class="fab-item">
+      <div class="fab-item-label">Bulk Deal</div>
+      <button class="fab-item-btn" onclick="closeFab();openBulkDealModal();">📦</button>
+    </div>
+    <div class="fab-item">
+      <div class="fab-item-label">New Deal</div>
+      <button class="fab-item-btn" onclick="closeFab();openDealModal();">📝</button>
+    </div>
+  </div>
+  <button id="fab-btn" onclick="toggleFab()">+</button>
+</div>
+
 <!-- ═══════════════ MODALS ═══════════════ -->
 
 <!-- Bulk Deal Modal -->
@@ -849,6 +975,29 @@
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeOverlay('modal-sku')">Cancel</button>
       <button class="btn btn-blue" onclick="saveSku()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Merge SKU Modal -->
+<div class="overlay" id="modal-merge-sku">
+  <div class="modal">
+    <div class="modal-title">🔀 Merge Duplicate SKUs</div>
+    <div class="alert alert-warn" style="display:block;margin-bottom:16px;">
+      ⚠ The duplicate SKU will be permanently deleted. All its deals, deliveries and stock entries will be reassigned to the kept SKU.
+    </div>
+    <div class="mfg">
+      <label>SKU to Keep (master) *</label>
+      <select id="merge-keep"><option value="">— Select SKU to Keep —</option></select>
+    </div>
+    <div class="mfg">
+      <label>SKU to Delete (duplicate) *</label>
+      <select id="merge-del"><option value="">— Select Duplicate SKU —</option></select>
+    </div>
+    <div id="merge-preview" style="display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-merge-sku')">Cancel</button>
+      <button class="btn btn-red" onclick="executeMerge()">🔀 Merge & Delete Duplicate</button>
     </div>
   </div>
 </div>
@@ -1147,6 +1296,98 @@ function pbar(delivered, total, status) {
 function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" style="text-align:center;padding:32px;color:#94a3b8;">${msg}</td></tr>`; }
 
 // ══════════════════════════════════════════════
+// FAB (Floating Action Button)
+// ══════════════════════════════════════════════
+function toggleFab() {
+  const menu = document.getElementById('fab-menu');
+  const btn  = document.getElementById('fab-btn');
+  const overlay = document.getElementById('fab-overlay');
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'flex';
+  btn.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('open', !isOpen);
+}
+function closeFab() {
+  document.getElementById('fab-menu').style.display = 'none';
+  document.getElementById('fab-btn').classList.remove('open');
+  document.getElementById('fab-overlay').classList.remove('open');
+}
+
+// ══════════════════════════════════════════════
+// DEAL CARD RENDERER (mobile)
+// ══════════════════════════════════════════════
+function dealCardHtml(deal, showAdminActions) {
+  const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
+  const delivered = getDelivered(deal.id);
+  const remaining = (deal.totalQty || 0) - delivered;
+  const pct = deal.totalQty ? Math.min((delivered / deal.totalQty) * 100, 100) : 0;
+  const statusClass = deal.status === 'FULFILLED' ? 'fulfilled' : deal.status === 'OVERFULFILLED' ? 'overfulfilled' : '';
+  const pfillClass = deal.status === 'FULFILLED' ? 'g' : deal.status === 'OVERFULFILLED' ? 'r' : '';
+
+  const adminActions = showAdminActions ? `
+    ${deal.status==='OPEN' ? `<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>` : ''}
+    ${deal.status==='OPEN'||deal.status==='OVERFULFILLED' ? `<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>` : ''}
+    ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED' ? `<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>` : ''}
+    <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
+  ` : '';
+
+  return `<div class="deal-card ${statusClass}">
+    <div class="deal-card-top">
+      <span class="deal-card-date">${fmtD(deal.dealDate)}</span>
+      ${badge(deal.status)}
+    </div>
+    <div class="deal-card-supplier">${sup.name}</div>
+    <div class="deal-card-sku">${sku.name} <span style="color:#94a3b8;">· ${sku.category}</span></div>
+    <div class="deal-card-stats">
+      <div class="deal-card-stat">
+        <div class="deal-card-stat-label">Rate</div>
+        <div class="deal-card-stat-val">₹${fmtN(deal.rate)}/${sku.unit||'kg'}</div>
+      </div>
+      <div class="deal-card-stat">
+        <div class="deal-card-stat-label">Total</div>
+        <div class="deal-card-stat-val">${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</div>
+      </div>
+      <div class="deal-card-stat">
+        <div class="deal-card-stat-label">Delivered</div>
+        <div class="deal-card-stat-val green">${fmtQ(delivered)}</div>
+      </div>
+      <div class="deal-card-stat">
+        <div class="deal-card-stat-label">Remaining</div>
+        <div class="deal-card-stat-val ${remaining>0?'red':'green'}">${fmtQ(remaining)}</div>
+      </div>
+    </div>
+    <div class="deal-card-progress">
+      <div class="pbar" style="height:8px;">
+        <div class="pfill ${pfillClass}" style="width:${pct}%"></div>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:3px;">${Math.round(pct)}% delivered</div>
+    </div>
+    <div class="deal-card-actions">
+      <button class="btn btn-outline btn-sm" onclick="viewDeal('${deal.id}')">👁 View</button>
+      ${adminActions}
+    </div>
+  </div>`;
+}
+
+function jumpToDeals(status) {
+  // Navigate to Deals tab with filter applied
+  switchTab('deals', true);
+  const filterBtns = document.querySelectorAll('#deals-filter .ftab');
+  filterBtns.forEach(b => b.classList.remove('active'));
+  if (status === 'OPEN') {
+    dealsFilter = 'OPEN';
+    filterBtns[1]?.classList.add('active');
+  } else if (status === 'FULFILLED') {
+    dealsFilter = 'FULFILLED';
+    filterBtns[2]?.classList.add('active');
+  } else if (status === 'OVERFULFILLED') {
+    dealsFilter = 'OVERFULFILLED';
+    filterBtns[3]?.classList.add('active');
+  }
+  renderDeals();
+}
+
+// ══════════════════════════════════════════════
 // SORT HELPERS
 // ══════════════════════════════════════════════
 function sortDeals(deals, sortKey) {
@@ -1194,7 +1435,12 @@ function renderDashboard() {
 
   const sorted = sortDeals(open, dbSort);
   const tbody = document.getElementById('db-tbody');
-  if (!sorted.length) { tbody.innerHTML = emptyRow(9, 'No open contracts'); return; }
+  const cards = document.getElementById('db-cards');
+  if (!sorted.length) {
+    tbody.innerHTML = emptyRow(9, 'No open contracts');
+    if (cards) cards.innerHTML = '<div class="empty"><div class="ei">📋</div><p>No open contracts</p></div>';
+    return;
+  }
   tbody.innerHTML = sorted.map(deal => {
     const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
@@ -1211,6 +1457,8 @@ function renderDashboard() {
       <td>${badge(deal.status)}</td>
     </tr>`;
   }).join('');
+  // Mobile cards
+  if (cards) cards.innerHTML = sorted.map(d => dealCardHtml(d, CU?.role === 'admin')).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1227,7 +1475,12 @@ function renderDeals() {
   let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
   deals = sortDeals(deals, dealsSort);
   const tbody = document.getElementById('deals-tbody');
-  if (!deals.length) { tbody.innerHTML = emptyRow(10, 'No deals found'); return; }
+  const cards = document.getElementById('deals-cards');
+  if (!deals.length) {
+    tbody.innerHTML = emptyRow(10, 'No deals found');
+    if (cards) cards.innerHTML = '<div class="empty"><div class="ei">📋</div><p>No deals found</p></div>';
+    return;
+  }
   tbody.innerHTML = deals.map(deal => {
     const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
@@ -1251,6 +1504,8 @@ function renderDeals() {
       </td>
     </tr>`;
   }).join('');
+  // Mobile cards
+  if (cards) cards.innerHTML = deals.map(d => dealCardHtml(d, CU?.role === 'admin')).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1594,10 +1849,22 @@ async function delSup(id) {
 // ══════════════════════════════════════════════
 // SKUs
 // ══════════════════════════════════════════════
+let skuSort = 'name';
+
+function setSkuSort(key, btn) {
+  skuSort = key;
+  document.querySelectorAll('#sku-sort-row .ftab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderSkus();
+}
+
 function renderSkus() {
   const tbody = document.getElementById('sku-tbody');
   if (!allSkus.length) { tbody.innerHTML = emptyRow(4, 'No SKUs added yet'); return; }
-  tbody.innerHTML = allSkus.map(s => `<tr>
+  let skus = [...allSkus];
+  if (skuSort === 'name') skus.sort((a, b) => a.name.localeCompare(b.name));
+  if (skuSort === 'category') skus.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+  tbody.innerHTML = skus.map(s => `<tr>
     <td><strong>${s.name}</strong></td>
     <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${s.category}</span></td>
     <td>${s.unit}</td>
@@ -1622,6 +1889,16 @@ async function saveSku() {
   const id = document.getElementById('sku-eid').value;
   const name = document.getElementById('skm-name').value.trim();
   if (!name) { alert('SKU name is required.'); return; }
+
+  // Duplicate name check (case-insensitive)
+  const duplicate = allSkus.find(s =>
+    s.name.toLowerCase() === name.toLowerCase() && s.id !== id
+  );
+  if (duplicate) {
+    alert(`❌ SKU "${duplicate.name}" already exists!\n\nPlease use a different name, or use "Merge Duplicates" if this is a duplicate entry.`);
+    return;
+  }
+
   const data = { name, category: document.getElementById('skm-cat').value, unit: document.getElementById('skm-unit').value };
   try {
     if (id) await db.collection('skus').doc(id).update(data);
@@ -1633,9 +1910,106 @@ async function saveSku() {
 
 async function delSku(id) {
   const s = allSkus.find(x => x.id === id);
-  if (!confirm(`Delete SKU "${s?.name}"?`)) return;
+  // Check if SKU is used in any deals
+  const usedInDeals = allDeals.filter(d => d.skuId === id).length;
+  if (usedInDeals > 0) {
+    if (!confirm(`⚠ SKU "${s?.name}" is used in ${usedInDeals} deal(s).\n\nDeleting it will NOT remove those deals but the SKU name will show as missing.\n\nAre you sure?`)) return;
+  } else {
+    if (!confirm(`Delete SKU "${s?.name}"?`)) return;
+  }
   try { await db.collection('skus').doc(id).delete(); await loadAll(); }
   catch(e) { alert('Delete error: ' + e.message); }
+}
+
+// ── MERGE SKUs ──
+function openMergeSkuModal() {
+  const opts = allSkus.slice().sort((a,b) => a.name.localeCompare(b.name))
+    .map(s => `<option value="${s.id}">${s.name} (${s.category})</option>`).join('');
+  document.getElementById('merge-keep').innerHTML = '<option value="">— Select SKU to Keep —</option>' + opts;
+  document.getElementById('merge-del').innerHTML = '<option value="">— Select Duplicate SKU —</option>' + opts;
+  document.getElementById('merge-preview').style.display = 'none';
+  // Add onchange to show preview
+  document.getElementById('merge-keep').onchange = showMergePreview;
+  document.getElementById('merge-del').onchange = showMergePreview;
+  openOverlay('modal-merge-sku');
+  setTimeout(() => {
+    initSearchableSelect('merge-keep', showMergePreview);
+    initSearchableSelect('merge-del', showMergePreview);
+  }, 150);
+}
+
+function showMergePreview() {
+  const keepId = document.getElementById('merge-keep').value;
+  const delId  = document.getElementById('merge-del').value;
+  const prev   = document.getElementById('merge-preview');
+  if (!keepId || !delId) { prev.style.display = 'none'; return; }
+  if (keepId === delId) {
+    prev.style.display = 'block';
+    prev.className = 'alert alert-error';
+    prev.textContent = '❌ Cannot merge a SKU with itself. Please select two different SKUs.';
+    return;
+  }
+  const keep = allSkus.find(s => s.id === keepId);
+  const del  = allSkus.find(s => s.id === delId);
+  const dealsAffected = allDeals.filter(d => d.skuId === delId).length;
+  const delsAffected  = allDeliveries.filter(d => d.skuId === delId).length;
+  const stockAffected = [...allStockOpening, ...allStockIssues].filter(s => s.skuId === delId).length;
+  prev.style.display = 'block';
+  prev.className = 'deal-info-box';
+  prev.innerHTML = `
+    <div class="dib-row"><span class="dib-label">✅ Keep</span><span class="dib-val" style="color:#16a34a;">${keep.name} (${keep.unit})</span></div>
+    <div class="dib-row"><span class="dib-label">🗑 Delete</span><span class="dib-val" style="color:#dc2626;">${del.name} (${del.unit})</span></div>
+    <div style="margin-top:8px;font-size:12px;color:#64748b;">
+      Records to reassign: <strong>${dealsAffected} deals</strong> · <strong>${delsAffected} deliveries</strong> · <strong>${stockAffected} stock entries</strong>
+    </div>`;
+}
+
+async function executeMerge() {
+  const keepId = document.getElementById('merge-keep').value;
+  const delId  = document.getElementById('merge-del').value;
+  if (!keepId || !delId) { alert('Please select both SKUs.'); return; }
+  if (keepId === delId) { alert('Cannot merge a SKU with itself.'); return; }
+  const keep = allSkus.find(s => s.id === keepId);
+  const del  = allSkus.find(s => s.id === delId);
+  if (!confirm(`Final confirmation:\n\n✅ Keep: ${keep.name}\n🗑 Delete: ${del.name}\n\nAll records from "${del.name}" will be moved to "${keep.name}" and "${del.name}" will be permanently deleted.\n\nThis cannot be undone.`)) return;
+
+  try {
+    const batch = db.batch();
+
+    // Reassign deals
+    allDeals.filter(d => d.skuId === delId).forEach(d => {
+      batch.update(db.collection('deals').doc(d.id), { skuId: keepId });
+    });
+
+    // Reassign deliveries
+    allDeliveries.filter(d => d.skuId === delId).forEach(d => {
+      batch.update(db.collection('deliveries').doc(d.id), {
+        skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
+      });
+    });
+
+    // Reassign stock opening
+    allStockOpening.filter(s => s.skuId === delId).forEach(s => {
+      batch.update(db.collection('stock_opening').doc(s.id), {
+        skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
+      });
+    });
+
+    // Reassign stock issues
+    allStockIssues.filter(s => s.skuId === delId).forEach(s => {
+      batch.update(db.collection('stock_issues').doc(s.id), {
+        skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
+      });
+    });
+
+    // Delete duplicate SKU
+    batch.delete(db.collection('skus').doc(delId));
+
+    await batch.commit();
+    closeOverlay('modal-merge-sku');
+    await loadAll();
+    alert(`✅ Merge complete!\n"${del.name}" has been merged into "${keep.name}" and deleted.`);
+  } catch(e) { alert('Merge error: ' + e.message); }
 }
 
 // ══════════════════════════════════════════════
