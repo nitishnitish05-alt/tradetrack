@@ -660,14 +660,14 @@
         <div class="deals-search-wrap" style="flex:1;min-width:180px;position:relative;">
           <input type="text" id="deals-sku-search" class="deals-search-input"
             placeholder="🔍 Search SKU..." autocomplete="off"
-            oninput="onDealsSearch()" onfocus="showDealsSearchDrop('sku')" />
+            oninput="onDealsSearch();showDealsSearchDrop('sku');" onfocus="showDealsSearchDrop('sku')" />
           <button class="deals-search-clear" id="deals-sku-clear" onclick="clearDealsSearch('sku')" style="display:none;">×</button>
           <div class="deals-search-drop" id="deals-sku-drop"></div>
         </div>
         <div class="deals-search-wrap" style="flex:1;min-width:180px;position:relative;">
           <input type="text" id="deals-sup-search" class="deals-search-input"
             placeholder="🔍 Search Supplier..." autocomplete="off"
-            oninput="onDealsSearch()" onfocus="showDealsSearchDrop('sup')" />
+            oninput="onDealsSearch();showDealsSearchDrop('sup');" onfocus="showDealsSearchDrop('sup')" />
           <button class="deals-search-clear" id="deals-sup-clear" onclick="clearDealsSearch('sup')" style="display:none;">×</button>
           <div class="deals-search-drop" id="deals-sup-drop"></div>
         </div>
@@ -901,8 +901,9 @@
   <span><kbd>Alt+I</kbd> Issue to Production</span>
   <span><kbd>Alt+S</kbd> Stock</span>
   <span><kbd>Alt+U</kbd> Users</span>
+  <span><kbd>Ctrl+↵</kbd> Save modal</span>
   <span><kbd>Esc</kbd> Close modal</span>
-  <span><kbd>Enter</kbd> Next field / Save</span>
+  <span><kbd>Enter</kbd> Next field</span>
 </div>
 
 <!-- FAB overlay (closes menu on outside tap) -->
@@ -985,7 +986,7 @@
   <div class="modal">
     <div class="modal-title" id="sup-modal-title">Add Supplier</div>
     <input type="hidden" id="sup-eid" />
-    <div class="mfg"><label>Supplier Name *</label><input type="text" id="sm-name" placeholder="e.g. Sharma Traders" /></div>
+    <div class="mfg"><label>Supplier Name *</label><input type="text" id="sm-name" placeholder="e.g. Sharma Traders" oninput="autoCapital(this)" /></div>
     <div class="mfg"><label>Contact</label><input type="text" id="sm-contact" placeholder="Phone / Email" /></div>
     <div class="mfg"><label>Address</label><textarea id="sm-addr" rows="2" placeholder="City, State"></textarea></div>
     <div class="modal-actions">
@@ -1000,7 +1001,7 @@
   <div class="modal">
     <div class="modal-title" id="sku-modal-title">Add SKU</div>
     <input type="hidden" id="sku-eid" />
-    <div class="mfg"><label>SKU / Product Name *</label><input type="text" id="skm-name" placeholder="e.g. Shahi Masoor Dal" /></div>
+    <div class="mfg"><label>SKU / Product Name *</label><input type="text" id="skm-name" placeholder="e.g. Shahi Masoor Dal" oninput="autoCapital(this)" /></div>
     <div class="mfg"><label>Category</label>
       <select id="skm-cat">
         <option value="Raw Material">Raw Material</option>
@@ -3272,6 +3273,19 @@ function initKeyboard() {
       }
     }
 
+    // Ctrl+Enter: save currently open modal
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (document.getElementById('modal-bulk-deal').classList.contains('open')) { saveBulkDeal(); return; }
+      if (document.getElementById('modal-deal').classList.contains('open'))      { saveDeal(); return; }
+      if (document.getElementById('modal-sup').classList.contains('open'))       { saveSup(); return; }
+      if (document.getElementById('modal-sku').classList.contains('open'))       { saveSku(); return; }
+      if (document.getElementById('modal-user').classList.contains('open'))      { saveUser(); return; }
+      if (document.getElementById('modal-opening').classList.contains('open'))   { saveOpeningStock(); return; }
+      if (document.getElementById('modal-edit-delivery').classList.contains('open')) { saveEditDelivery(); return; }
+      if (document.getElementById('modal-edit-issue').classList.contains('open'))    { saveEditIssue(); return; }
+    }
+
     // Alt shortcuts (only when no modal open and user is logged in)
     if (e.altKey && !e.ctrlKey && !e.shiftKey && CU) {
       const hasModal = document.querySelectorAll('.overlay.open').length > 0;
@@ -3321,6 +3335,15 @@ function initKeyboard() {
     const mc = document.querySelector('.main-content');
     if (mc) mc.style.paddingBottom = '40px';
   }
+}
+
+// ══════════════════════════════════════════════
+// AUTO CAPITALIZE (Title Case)
+// ══════════════════════════════════════════════
+function autoCapital(input) {
+  const pos = input.selectionStart;
+  input.value = input.value.replace(/\b\w/g, c => c.toUpperCase());
+  input.setSelectionRange(pos, pos);
 }
 
 // ══════════════════════════════════════════════
