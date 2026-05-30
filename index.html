@@ -282,6 +282,30 @@
       border: 1px solid rgba(255,255,255,0.2); margin-right: 3px;
     }
     @media (max-width: 768px) { #kb-hints { display: none; } }
+    /* ── Similar SKUs Panel ── */
+    .similar-group {
+      background: #fffbeb; border: 2px solid #fde68a; border-radius: 12px;
+      padding: 16px; margin-bottom: 14px;
+    }
+    .similar-group-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+    }
+    .similar-group-title { font-size: 13px; font-weight: 700; color: #92400e; }
+    .similar-group-cat {
+      font-size: 11px; background: #fef3c7; color: #92400e;
+      padding: 2px 10px; border-radius: 10px; font-weight: 600;
+    }
+    .similar-sku-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: white; border-radius: 8px;
+      margin-bottom: 6px; border: 1px solid #e8edf3; flex-wrap: wrap; gap: 8px;
+    }
+    .similar-sku-row:last-child { margin-bottom: 0; }
+    .similar-sku-name { font-size: 13px; font-weight: 700; color: #0f2044; }
+    .similar-sku-meta { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .similar-sku-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
     /* ── Deals Search Bars ── */
     .deals-search-input {
       width: 100%; padding: 9px 32px 9px 13px;
@@ -698,6 +722,7 @@
       <div class="ph">
         <div><div class="ph-title">📦 SKUs / Products</div><div class="ph-sub">Raw materials and packaging SKUs</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline" onclick="findSimilarSkus()">🔍 Find Similar</button>
           <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge Duplicates</button>
           <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
         </div>
@@ -707,6 +732,7 @@
         <button class="ftab active" id="skus-name" onclick="setSkuSort('name',this)">Name (A→Z)</button>
         <button class="ftab" id="skus-cat" onclick="setSkuSort('category',this)">Category</button>
       </div>
+      <div id="similar-skus-panel" style="display:none;"></div>
       <div class="card"><div class="tbl-wrap"><table>
         <thead><tr><th>SKU Name</th><th>Category</th><th>Unit</th><th>Actions</th></tr></thead>
         <tbody id="sku-tbody"></tbody>
@@ -1996,6 +2022,131 @@ async function delSup(id) {
 // SKUs
 // ══════════════════════════════════════════════
 let skuSort = 'name';
+
+// ── FIND SIMILAR SKUs ──
+// Uses token-based similarity within the SAME category only
+function findSimilarSkus() {
+  const panel = document.getElementById('similar-skus-panel');
+
+  // Tokenize a name into cleaned words
+  function tokenize(name) {
+    return name.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 1); // ignore single chars
+  }
+
+  // Similarity score between two names (0–1)
+  // Based on shared tokens — within same category only
+  function similarity(a, b) {
+    const ta = new Set(tokenize(a));
+    const tb = new Set(tokenize(b));
+    if (!ta.size || !tb.size) return 0;
+    let shared = 0;
+    ta.forEach(t => { if (tb.has(t)) shared++; });
+    return shared / Math.max(ta.size, tb.size);
+  }
+
+  // Group by category first, then find similar pairs within each group
+  const THRESHOLD = 0.4; // 40% token overlap = similar
+  const groups = {}; // key: "cat|nameA|nameB" to avoid duplicates
+
+  // Group SKUs by category
+  const byCategory = {};
+  allSkus.forEach(sku => {
+    if (!byCategory[sku.category]) byCategory[sku.category] = [];
+    byCategory[sku.category].push(sku);
+  });
+
+  const similarGroups = [];
+
+  Object.entries(byCategory).forEach(([cat, skus]) => {
+    const visited = new Set();
+    skus.forEach((a, i) => {
+      if (visited.has(a.id)) return;
+      const group = [a];
+      skus.forEach((b, j) => {
+        if (i === j || visited.has(b.id)) return;
+        if (similarity(a.name, b.name) >= THRESHOLD) {
+          group.push(b);
+          visited.add(b.id);
+        }
+      });
+      if (group.length > 1) {
+        visited.add(a.id);
+        similarGroups.push({ category: cat, skus: group });
+      }
+    });
+  });
+
+  if (!similarGroups.length) {
+    panel.style.display = 'block';
+    panel.innerHTML = `
+      <div class="alert alert-success" style="display:block;margin-bottom:16px;">
+        ✅ No similar SKUs found within any category. Your SKU list looks clean!
+        <button onclick="document.getElementById('similar-skus-panel').style.display='none'" 
+          style="float:right;background:none;border:none;cursor:pointer;font-size:16px;color:#15803d;">×</button>
+      </div>`;
+    return;
+  }
+
+  // Render groups
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="background:#fef3c7;border:2px solid #fde68a;border-radius:12px;padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span style="font-size:14px;font-weight:800;color:#92400e;">⚠ Found ${similarGroups.length} group${similarGroups.length>1?'s':''} of similar SKUs</span>
+          <div style="font-size:12px;color:#92400e;margin-top:3px;">Searched within same category only. Review and merge, edit or delete as needed.</div>
+        </div>
+        <button onclick="document.getElementById('similar-skus-panel').style.display='none'"
+          style="background:none;border:none;cursor:pointer;font-size:20px;color:#92400e;padding:0 4px;">×</button>
+      </div>
+    </div>
+    ${similarGroups.map((g, gi) => `
+      <div class="similar-group">
+        <div class="similar-group-header">
+          <div class="similar-group-title">Group ${gi+1} — ${g.skus.length} similar names</div>
+          <span class="similar-group-cat">${g.category}</span>
+        </div>
+        ${g.skus.map(sku => {
+          const dealCount = allDeals.filter(d => d.skuId === sku.id).length;
+          return `<div class="similar-sku-row">
+            <div>
+              <div class="similar-sku-name">${sku.name}</div>
+              <div class="similar-sku-meta">${sku.unit} · ${dealCount} deal${dealCount!==1?'s':''}</div>
+            </div>
+            <div class="similar-sku-actions">
+              <button class="btn btn-outline btn-sm" onclick="openSkuModal('${sku.id}')">✏ Edit</button>
+              <button class="btn btn-outline btn-sm" onclick="prefillMerge('${sku.id}')">🔀 Merge</button>
+              <button class="btn btn-red btn-sm" onclick="delSku('${sku.id}')">Del</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `).join('')}`;
+}
+
+// Pre-fill merge modal with a selected SKU as the one to delete
+function prefillMerge(delSkuId) {
+  openMergeSkuModal();
+  setTimeout(() => {
+    const delSel = document.getElementById('merge-del');
+    if (delSel) {
+      delSel.value = delSkuId;
+      delSel.dispatchEvent(new Event('change'));
+      // Also update the searchable select display
+      const wrap = document.getElementById('merge-del-ss-wrap');
+      if (wrap) {
+        const input = wrap.querySelector('input');
+        const sku = allSkus.find(s => s.id === delSkuId);
+        if (input && sku) input.value = `${sku.name} (${sku.category})`;
+      }
+      showMergePreview();
+    }
+  }, 200);
+}
+
 
 function setSkuSort(key, btn) {
   skuSort = key;
