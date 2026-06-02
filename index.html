@@ -811,13 +811,46 @@
       </div>
     </div>
 
-    <!-- ── HISTORY ── -->
+    <!-- ── HISTORY (UNIFIED) ── -->
     <div class="panel" id="panel-history">
       <div class="ph">
-        <div><div class="ph-title">🕐 Delivery History</div><div class="ph-sub" id="history-sub">All recorded deliveries</div></div>
+        <div><div class="ph-title">📋 History</div><div class="ph-sub">All inward deliveries & outward issues</div></div>
+        <button class="btn btn-outline" onclick="printHistory()">🖨 Print</button>
+      </div>
+      <!-- Filters row 1: Type + Sort -->
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <div class="filter-row" id="hist-type-filter" style="margin-bottom:0;">
+          <button class="ftab active" onclick="setHistFilter('all',this)">All</button>
+          <button class="ftab" onclick="setHistFilter('inward',this)">🟢 Inwards</button>
+          <button class="ftab" onclick="setHistFilter('outward',this)">🔴 Outwards</button>
+        </div>
+        <div class="filter-row" style="margin-bottom:0;">
+          <span style="font-size:11px;color:#94a3b8;font-weight:600;">SORT:</span>
+          <button class="ftab active" id="hs-date" onclick="setHistSort('date',this)">Date</button>
+          <button class="ftab" id="hs-sku" onclick="setHistSort('sku',this)">SKU</button>
+          <button class="ftab" id="hs-cat" onclick="setHistSort('category',this)">Category</button>
+          <button class="ftab" id="hs-sup" onclick="setHistSort('supplier',this)">Supplier</button>
+        </div>
+      </div>
+      <!-- Filters row 2: Date range + SKU search -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">From Date</div>
+          <input type="date" id="hist-from" onchange="renderHistory()" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">To Date</div>
+          <input type="date" id="hist-to" onchange="renderHistory()" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+        </div>
+        <div style="flex:1;min-width:160px;">
+          <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">SKU</div>
+          <input type="text" id="hist-sku-filter" placeholder="Filter by SKU name..." oninput="renderHistory()"
+            style="width:100%;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="clearHistFilters()">Clear</button>
       </div>
       <div class="card"><div class="tbl-wrap"><table>
-        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Contracted Rate</th><th>Qty Received</th><th>Notes</th><th>Recorded By</th><th id="hist-th-actions"></th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Supplier / Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Rate</th><th>By</th><th id="hist-th-actions"></th></tr></thead>
         <tbody id="hist-tbody"></tbody>
       </table></div></div>
     </div>
@@ -864,14 +897,19 @@
       <div id="stock-content"></div>
     </div>
 
-    <!-- ── OPERATOR: TODAY'S DELIVERIES ── -->
-    <div class="panel" id="panel-opr-history">
+    <!-- ── OPERATOR: TODAY'S ACTIVITY ── -->
+    <div class="panel" id="panel-opr-activity">
       <div class="ph">
-        <div><div class="ph-title">📋 Today's Deliveries</div><div class="ph-sub" id="opr-history-sub"></div></div>
+        <div><div class="ph-title">📋 Today's Activity</div><div class="ph-sub" id="opr-activity-sub"></div></div>
+      </div>
+      <div class="filter-row" id="opr-act-filter" style="margin-bottom:16px;">
+        <button class="ftab active" onclick="setOprActFilter('all',this)">All</button>
+        <button class="ftab" onclick="setOprActFilter('inward',this)">🟢 Inwards</button>
+        <button class="ftab" onclick="setOprActFilter('outward',this)">🔴 Outwards</button>
       </div>
       <div class="card"><div class="tbl-wrap"><table>
-        <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Rate</th><th>Qty</th><th>Notes</th></tr></thead>
-        <tbody id="opr-hist-tbody"></tbody>
+        <thead><tr><th>Date</th><th>Type</th><th>Supplier / Notes</th><th>SKU</th><th>Qty</th><th>By</th></tr></thead>
+        <tbody id="opr-activity-tbody"></tbody>
       </table></div></div>
     </div>
 
@@ -891,17 +929,6 @@
         <div id="ip-alert" style="display:none;"></div>
         <button class="btn btn-green btn-lg" style="width:100%;" onclick="submitIssue()">✓ Record Issue</button>
       </div>
-    </div>
-
-    <!-- ── OPERATOR: TODAY'S ISSUES ── -->
-    <div class="panel" id="panel-opr-issues">
-      <div class="ph">
-        <div><div class="ph-title">📋 Today's Issues</div><div class="ph-sub" id="opr-issues-sub"></div></div>
-      </div>
-      <div class="card"><div class="tbl-wrap"><table>
-        <thead><tr><th>Date</th><th>SKU</th><th>Qty Issued</th><th>Notes</th><th>By</th></tr></thead>
-        <tbody id="opr-issues-tbody"></tbody>
-      </table></div></div>
     </div>
 
     <!-- ── USERS ── -->
@@ -1244,16 +1271,15 @@ const ADMIN_TABS = [
   { id: 'suppliers', label: '🏭 Suppliers' },
   { id: 'skus', label: '📦 SKUs' },
   { id: 'add-delivery', label: '🚚 Add Delivery' },
-  { id: 'history', label: '🕐 History' },
+  { id: 'history', label: '📋 History' },
   { id: 'reports', label: '🖨 Reports' },
   { id: 'stock', label: '📦 Stock' },
   { id: 'users', label: '👥 Users' },
 ];
 const OPR_TABS = [
   { id: 'add-delivery', label: '🚚 Add Delivery' },
-  { id: 'opr-history', label: '📋 Today\'s Deliveries' },
+  { id: 'opr-activity', label: '📋 Today\'s Activity' },
   { id: 'issue-production', label: '🏭 Issue to Production' },
-  { id: 'opr-issues', label: '📋 Today\'s Issues' },
 ];
 
 function buildNav() {
@@ -1266,13 +1292,13 @@ function buildNav() {
   // Mobile icon map
   const iconMap = {
     'dashboard': '📊', 'deals': '📝', 'suppliers': '🏭',
-    'skus': '📦', 'add-delivery': '🚚', 'history': '🕐', 'reports': '🖨',
-    'stock': '📦', 'users': '👥', 'opr-history': '📋', 'issue-production': '🏭', 'opr-issues': '📋'
+    'skus': '📦', 'add-delivery': '🚚', 'history': '📋', 'reports': '🖨',
+    'stock': '📦', 'users': '👥', 'opr-activity': '📋', 'issue-production': '🏭'
   };
   const shortLabel = {
     'dashboard': 'Dashboard', 'deals': 'Deals', 'suppliers': 'Suppliers',
     'skus': 'SKUs', 'add-delivery': 'Delivery', 'history': 'History', 'reports': 'Reports',
-    'stock': 'Stock', 'users': 'Users', 'opr-history': 'Deliveries', 'issue-production': 'Issue', 'opr-issues': 'Issues'
+    'stock': 'Stock', 'users': 'Users', 'opr-activity': 'Activity', 'issue-production': 'Issue'
   };
 
   tabs.forEach((t, i) => {
@@ -1309,9 +1335,8 @@ function switchTab(id, scrollToTop) {
   if (id === 'history') renderHistory();
   if (id === 'users') renderUsers();
   if (id === 'stock') renderStock('current');
-  if (id === 'opr-history') renderOprHistory();
+  if (id === 'opr-activity') renderOprActivity();
   if (id === 'issue-production') setupIssueForm();
-  if (id === 'opr-issues') renderOprIssues();
   // Only scroll to top when user explicitly clicks a tab
   if (scrollToTop) window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -2676,30 +2701,137 @@ async function submitBulkDelivery() {
   }
 }
 // ══════════════════════════════════════════════
+// ── History state
+let histType = 'all', histSort = 'date';
+
+function setHistFilter(type, btn) {
+  histType = type;
+  document.querySelectorAll('#hist-type-filter .ftab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistory();
+}
+function setHistSort(key, btn) {
+  histSort = key;
+  document.querySelectorAll('[id^="hs-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistory();
+}
+function clearHistFilters() {
+  document.getElementById('hist-from').value = '';
+  document.getElementById('hist-to').value = '';
+  document.getElementById('hist-sku-filter').value = '';
+  renderHistory();
+}
+
 function renderHistory() {
-  const dels = CU.role === 'admin'
-    ? allDeliveries
-    : allDeliveries.filter(d => d.createdBy === CU.username);
-  document.getElementById('history-sub').textContent = CU.role === 'admin' ? 'All recorded deliveries' : 'Your recorded deliveries';
+  const fromDate  = document.getElementById('hist-from')?.value  || '';
+  const toDate    = document.getElementById('hist-to')?.value    || '';
+  const skuFilter = (document.getElementById('hist-sku-filter')?.value || '').toLowerCase();
   const thActions = document.getElementById('hist-th-actions');
   if (thActions) thActions.textContent = CU.role === 'admin' ? 'Actions' : '';
+
+  // Build unified movement list
+  let movements = [];
+  // Inwards — deliveries
+  if (histType !== 'outward') {
+    allDeliveries.forEach(d => {
+      movements.push({
+        date: d.deliveryDate, type: 'inward',
+        supplier: d.supplierName || '—',
+        skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
+        skuCat: getSku(d.skuId)?.category || '—',
+        qty: d.qty, rate: d.dealRate,
+        notes: d.notes, by: d.createdBy,
+        id: d.id, srcType: 'delivery'
+      });
+    });
+  }
+  // Outwards — issues
+  if (histType !== 'inward') {
+    allStockIssues.forEach(i => {
+      movements.push({
+        date: i.date, type: 'outward',
+        supplier: '—',
+        skuName: i.skuName || '—', skuUnit: i.skuUnit || 'kg',
+        skuCat: getSku(i.skuId)?.category || '—',
+        qty: i.qty, rate: null,
+        notes: i.notes, by: i.createdBy,
+        id: i.id, srcType: 'issue'
+      });
+    });
+  }
+
+  // Apply filters
+  if (fromDate)  movements = movements.filter(m => m.date >= fromDate);
+  if (toDate)    movements = movements.filter(m => m.date <= toDate);
+  if (skuFilter) movements = movements.filter(m => m.skuName.toLowerCase().includes(skuFilter));
+
+  // Sort
+  movements.sort((a, b) => {
+    if (histSort === 'date')     return b.date > a.date ? 1 : b.date < a.date ? -1 : 0;
+    if (histSort === 'sku')      return a.skuName.localeCompare(b.skuName);
+    if (histSort === 'category') return a.skuCat.localeCompare(b.skuCat) || a.skuName.localeCompare(b.skuName);
+    if (histSort === 'supplier') return a.supplier.localeCompare(b.supplier);
+    return 0;
+  });
+
   const tbody = document.getElementById('hist-tbody');
-  if (!dels.length) { tbody.innerHTML = emptyRow(8, 'No deliveries recorded yet'); return; }
-  tbody.innerHTML = dels.map(d => `<tr>
-    <td>${fmtD(d.deliveryDate)}</td>
-    <td>${d.supplierName || '—'}</td>
-    <td>${d.skuName || '—'}</td>
-    <td style="font-weight:700;color:#dc2626;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</td>
-    <td><strong>${fmtQ(d.qty)} ${d.skuUnit||'kg'}</strong></td>
-    <td>${d.notes || '—'}</td>
-    <td>${d.createdBy || '—'}</td>
+  if (!movements.length) {
+    tbody.innerHTML = emptyRow(9, 'No records found for selected filters');
+    return;
+  }
+  tbody.innerHTML = movements.map(m => `<tr>
+    <td>${fmtD(m.date)}</td>
+    <td>${m.type === 'inward'
+      ? '<span class="badge" style="background:#dcfce7;color:#15803d;">🟢 Inward</span>'
+      : '<span class="badge" style="background:#fee2e2;color:#b91c1c;">🔴 Outward</span>'}</td>
+    <td>${m.type === 'inward' ? m.supplier : (m.notes || '—')}</td>
+    <td><strong>${m.skuName}</strong></td>
+    <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${m.skuCat}</span></td>
+    <td><strong>${fmtQ(m.qty)} ${m.skuUnit}</strong></td>
+    <td>${m.rate != null ? `<span style="color:#dc2626;font-weight:700;">₹${fmtN(m.rate)}/${m.skuUnit}</span>` : '—'}</td>
+    <td>${m.by || '—'}</td>
     <td style="white-space:nowrap;">
-      ${CU.role === 'admin' ? `
-        <button class="btn btn-outline btn-sm" onclick="openEditDelivery('${d.id}')">Edit</button>
-        <button class="btn btn-red btn-sm" onclick="deleteDelivery('${d.id}')">Del</button>
-      ` : ''}
+      ${CU.role === 'admin' ? (m.srcType === 'delivery'
+        ? `<button class="btn btn-outline btn-sm" onclick="openEditDelivery('${m.id}')">Edit</button>
+           <button class="btn btn-red btn-sm" onclick="deleteDelivery('${m.id}')">Del</button>`
+        : `<button class="btn btn-outline btn-sm" onclick="openEditIssue('${m.id}')">Edit</button>
+           <button class="btn btn-red btn-sm" onclick="deleteIssue('${m.id}')">Del</button>`) : ''}
     </td>
   </tr>`).join('');
+}
+
+function printHistory() {
+  const fromDate  = document.getElementById('hist-from')?.value  || '';
+  const toDate    = document.getElementById('hist-to')?.value    || '';
+  const rows = document.getElementById('hist-tbody').innerHTML;
+  const typeLabel = histType === 'inward' ? 'Inwards Only' : histType === 'outward' ? 'Outwards Only' : 'All Movements';
+  const dateLabel = fromDate || toDate ? ` | ${fromDate?fmtD(fromDate):'Start'} → ${toDate?fmtD(toDate):'Today'}` : '';
+  const html = `<!DOCTYPE html><html><head><title>TradeTrack – History</title><style>
+    @page{margin:12mm;size:A4;}*{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',sans-serif;font-size:11px;color:#1a1a1a;}
+    .hdr{border-bottom:2px solid #0f2044;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end;}
+    .hdr h1{font-size:16px;font-weight:900;color:#0f2044;}.hdr p{font-size:10px;color:#555;margin-top:2px;}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#0f2044;color:white;padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;}
+    td{padding:5px 8px;border-bottom:1px solid #e8e8e8;font-size:10px;}
+    tr:nth-child(even){background:#f9f9f9;}
+    .badge{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;}
+    .footer{margin-top:12px;font-size:9px;color:#aaa;text-align:right;}
+  </style></head><body>
+    <div class="hdr">
+      <div><h1>TradeTrack – Movement History</h1><p>${typeLabel}${dateLabel} · Generated by ${CU?.username||'—'}</p></div>
+      <div style="font-size:10px;color:#777;">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</div>
+    </div>
+    <table><thead><tr><th>Date</th><th>Type</th><th>Supplier/Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Rate</th><th>By</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="footer">TradeTrack · Maruti Namkeen Procurement</div>
+  </body></html>`;
+  const frame = document.getElementById('print-frame');
+  frame.contentDocument.open();
+  frame.contentDocument.write(html);
+  frame.contentDocument.close();
+  setTimeout(() => frame.contentWindow.print(), 600);
 }
 
 async function deleteDelivery(id) {
@@ -2929,9 +3061,14 @@ function renderStock(subTab, btn) {
 }
 
 // Current Stock summary
+let stockCatFilter = 'all';
 function renderCurrentStock(el) {
   if (!allSkus.length) { el.innerHTML = '<div class="empty"><div class="ei">📦</div><p>No SKUs added yet</p></div>'; return; }
-  const rows = allSkus.map(sku => {
+  const cats = ['all', ...new Set(allSkus.map(s => s.category))].sort();
+  let skus = [...allSkus].sort((a,b) => a.name.localeCompare(b.name));
+  if (stockCatFilter !== 'all') skus = skus.filter(s => s.category === stockCatFilter);
+
+  const rows = skus.map(sku => {
     const { baseQty, baseDate, purchased, issued, closing } = calcStock(sku.id);
     const lowClass = (sku.minStock && closing <= sku.minStock) ? 'color:#dc2626;font-weight:800;' : 'color:#16a34a;font-weight:800;';
     return `<tr>
@@ -2945,10 +3082,19 @@ function renderCurrentStock(el) {
       ${CU.role==='admin' ? `<td><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td></td>'}
     </tr>`;
   }).join('');
-  el.innerHTML = `<div class="card"><div class="tbl-wrap"><table>
-    <thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div></div>`;
+
+  const catBtns = cats.map(c => `<button class="ftab ${c===stockCatFilter?'active':''}"
+    onclick="stockCatFilter='${c}';renderStock('current');">${c==='all'?'All Categories':c}</button>`).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+      <div class="filter-row" style="margin-bottom:0;">${catBtns}</div>
+      <button class="btn btn-outline" onclick="printStockReport()">🖨 Print Stock Report</button>
+    </div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;">No SKUs in this category</td></tr>'}</tbody>
+    </table></div></div>`;
 }
 
 // Set Opening Stock
@@ -2975,13 +3121,23 @@ function renderSetOpening(el) {
     </table></div></div>`;
 }
 
-// Issue History (admin)
+// Issue History (admin) — with filters
 function renderIssueHistory(el) {
-  const rows = allStockIssues.length ? allStockIssues.map(i => {
+  let issues = [...allStockIssues];
+  // Build filter UI
+  const skuSearch = document.getElementById('ih-sku-search')?.value?.toLowerCase() || '';
+  const fromDate  = document.getElementById('ih-from')?.value || '';
+  const toDate    = document.getElementById('ih-to')?.value   || '';
+  if (skuSearch) issues = issues.filter(i => (i.skuName||'').toLowerCase().includes(skuSearch));
+  if (fromDate)  issues = issues.filter(i => i.date >= fromDate);
+  if (toDate)    issues = issues.filter(i => i.date <= toDate);
+
+  const rows = issues.length ? issues.map(i => {
     const sku = getSku(i.skuId);
     return `<tr>
       <td>${fmtD(i.date)}</td>
       <td><strong>${i.skuName || sku.name}</strong></td>
+      <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${sku.category||'—'}</span></td>
       <td><strong>${fmtQ(i.qty)} ${i.skuUnit || sku.unit}</strong></td>
       <td>${i.notes || '—'}</td>
       <td>${i.createdBy || '—'}</td>
@@ -2990,12 +3146,31 @@ function renderIssueHistory(el) {
         <button class="btn btn-red btn-sm" onclick="deleteIssue('${i.id}')">Del</button>
       </td>
     </tr>`;
-  }).join('') : `<tr><td colspan="6" style="text-align:center;padding:24px;color:#94a3b8;">No issues recorded yet</td></tr>`;
+  }).join('') : `<tr><td colspan="7" style="text-align:center;padding:24px;color:#94a3b8;">No issues found</td></tr>`;
 
-  el.innerHTML = `<div class="card"><div class="tbl-wrap"><table>
-    <thead><tr><th>Date</th><th>SKU</th><th>Qty Issued</th><th>Notes</th><th>By</th><th>Actions</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div></div>`;
+  el.innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">From</div>
+        <input type="date" id="ih-from" value="${fromDate}" onchange="renderIssueHistory(document.getElementById('stock-content'))"
+          style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">To</div>
+        <input type="date" id="ih-to" value="${toDate}" onchange="renderIssueHistory(document.getElementById('stock-content'))"
+          style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+      </div>
+      <div style="flex:1;min-width:160px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">SKU</div>
+        <input type="text" id="ih-sku-search" value="${skuSearch}" placeholder="Filter by SKU name..."
+          oninput="renderIssueHistory(document.getElementById('stock-content'))"
+          style="width:100%;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
+      </div>
+    </div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <thead><tr><th>Date</th><th>SKU</th><th>Category</th><th>Qty Issued</th><th>Notes</th><th>By</th><th>Actions</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></div>`;
 }
 
 // Stock Ledger per SKU
@@ -3182,40 +3357,81 @@ async function deleteIssue(id) {
 }
 
 // Operator: Today's Deliveries
-function renderOprHistory() {
+// ── Operator: Today's Activity (inwards + outwards)
+let oprActFilter = 'all';
+function setOprActFilter(type, btn) {
+  oprActFilter = type;
+  document.querySelectorAll('#opr-act-filter .ftab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderOprActivity();
+}
+function renderOprActivity() {
   const t = today();
-  const dels = CU.role === 'admin'
-    ? allDeliveries.filter(d => d.deliveryDate === t)
-    : allDeliveries.filter(d => d.deliveryDate === t && d.createdBy === CU.username);
-  document.getElementById('opr-history-sub').textContent = `Today — ${fmtD(t)}`;
-  const tbody = document.getElementById('opr-hist-tbody');
-  if (!dels.length) { tbody.innerHTML = emptyRow(6, "No deliveries recorded today"); return; }
-  tbody.innerHTML = dels.map(d => `<tr>
-    <td>${fmtD(d.deliveryDate)}</td>
-    <td>${d.supplierName||'—'}</td>
-    <td>${d.skuName||'—'}</td>
-    <td style="color:#dc2626;font-weight:700;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</td>
-    <td><strong>${fmtQ(d.qty)} ${d.skuUnit||'kg'}</strong></td>
-    <td>${d.notes||'—'}</td>
+  document.getElementById('opr-activity-sub').textContent = `Today — ${fmtD(t)}`;
+  let movements = [];
+  // Inwards
+  if (oprActFilter !== 'outward') {
+    allDeliveries
+      .filter(d => d.deliveryDate === t && (CU.role === 'admin' || d.createdBy === CU.username))
+      .forEach(d => movements.push({
+        date: d.deliveryDate, type: 'inward',
+        label: d.supplierName || '—',
+        skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
+        qty: d.qty, by: d.createdBy
+      }));
+  }
+  // Outwards
+  if (oprActFilter !== 'inward') {
+    allStockIssues
+      .filter(i => i.date === t && (CU.role === 'admin' || i.createdBy === CU.username))
+      .forEach(i => movements.push({
+        date: i.date, type: 'outward',
+        label: i.notes || '—',
+        skuName: i.skuName || '—', skuUnit: i.skuUnit || 'kg',
+        qty: i.qty, by: i.createdBy
+      }));
+  }
+  const tbody = document.getElementById('opr-activity-tbody');
+  if (!movements.length) { tbody.innerHTML = emptyRow(6, 'No activity recorded today'); return; }
+  tbody.innerHTML = movements.map(m => `<tr>
+    <td>${fmtD(m.date)}</td>
+    <td>${m.type === 'inward'
+      ? '<span class="badge" style="background:#dcfce7;color:#15803d;">🟢 In</span>'
+      : '<span class="badge" style="background:#fee2e2;color:#b91c1c;">🔴 Out</span>'}</td>
+    <td>${m.label}</td>
+    <td><strong>${m.skuName}</strong></td>
+    <td><strong>${fmtQ(m.qty)} ${m.skuUnit}</strong></td>
+    <td>${m.by || '—'}</td>
   </tr>`).join('');
 }
 
-// Operator: Today's Issues
-function renderOprIssues() {
-  const t = today();
-  const issues = CU.role === 'admin'
-    ? allStockIssues.filter(i => i.date === t)
-    : allStockIssues.filter(i => i.date === t && i.createdBy === CU.username);
-  document.getElementById('opr-issues-sub').textContent = `Today — ${fmtD(t)}`;
-  const tbody = document.getElementById('opr-issues-tbody');
-  if (!issues.length) { tbody.innerHTML = emptyRow(5, "No issues recorded today"); return; }
-  tbody.innerHTML = issues.map(i => `<tr>
-    <td>${fmtD(i.date)}</td>
-    <td><strong>${i.skuName||'—'}</strong></td>
-    <td><strong>${fmtQ(i.qty)} ${i.skuUnit||'kg'}</strong></td>
-    <td>${i.notes||'—'}</td>
-    <td>${i.createdBy||'—'}</td>
-  </tr>`).join('');
+function printStockReport() {
+  const rows = document.querySelector('#stock-content tbody')?.innerHTML || '';
+  const catLabel = stockCatFilter === 'all' ? 'All Categories' : stockCatFilter;
+  const html = `<!DOCTYPE html><html><head><title>TradeTrack – Stock Report</title><style>
+    @page{margin:12mm;size:A4;}*{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',sans-serif;font-size:11px;color:#1a1a1a;}
+    .hdr{border-bottom:2px solid #0f2044;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end;}
+    .hdr h1{font-size:16px;font-weight:900;color:#0f2044;}.hdr p{font-size:10px;color:#555;margin-top:2px;}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#0f2044;color:white;padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;}
+    td{padding:5px 8px;border-bottom:1px solid #e8e8e8;font-size:10px;}
+    tr:nth-child(even){background:#f9f9f9;}
+    .footer{margin-top:12px;font-size:9px;color:#aaa;text-align:right;}
+  </style></head><body>
+    <div class="hdr">
+      <div><h1>TradeTrack – Current Stock Report</h1><p>${catLabel} · Generated by ${CU?.username||'—'}</p></div>
+      <div style="font-size:10px;color:#777;">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</div>
+    </div>
+    <table><thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    <div class="footer">TradeTrack · Maruti Namkeen Procurement</div>
+  </body></html>`;
+  const frame = document.getElementById('print-frame');
+  frame.contentDocument.open();
+  frame.contentDocument.write(html);
+  frame.contentDocument.close();
+  setTimeout(() => frame.contentWindow.print(), 600);
 }
 
 // ══════════════════════════════════════════════
