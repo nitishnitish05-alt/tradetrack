@@ -1138,8 +1138,9 @@ async function loadAll() {
     allUsers        = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allStockOpening = soSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allStockIssues  = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const activeTab = document.querySelector('.nav-tab.active') || document.querySelector('.bnav-tab.active');
-    if (activeTab) switchTab(activeTab.dataset.tab);
+    // Re-render current active section with fresh data
+    if (currentSectionId) switchSection(currentSectionId);
+    else switchSection('dashboard');
   } catch(e) { alert('Failed to load data: ' + e.message); }
 }
 
@@ -1390,7 +1391,8 @@ function renderDashboard() {
   }, 0);
   document.getElementById('s-open').textContent = open.length;
   document.getElementById('s-fulfilled').textContent = ful.length;
-  document.getElementById('s-over').textContent = over.length;
+  const sOver = document.getElementById('s-over');
+  if (sOver) sOver.textContent = over.length;
   document.getElementById('s-value').textContent = '₹' + fmtN(Math.round(pendVal));
   const reorderAlerts = getReorderAlerts();
   const sReorder = document.getElementById('s-reorder');
