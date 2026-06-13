@@ -1661,7 +1661,7 @@ async function saveDeal() {
     else { await db.collection('deals').add({ ...data, createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp() }); }
     closeOverlay('modal-deal');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function deleteDeal(id) {
@@ -1678,7 +1678,7 @@ async function deleteDeal(id) {
     await batch.commit();
     await loadAll();
     window.scrollTo({ top: scrollY });
-  } catch(e) { alert('Delete error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function markDealFulfilled(id, fromModal) {
@@ -1811,14 +1811,14 @@ async function saveSup() {
     else await db.collection('suppliers').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     closeOverlay('modal-sup');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function delSup(id) {
   const s = allSuppliers.find(x => x.id === id);
   if (!confirm(`Delete supplier "${s?.name}"? This does not delete associated deals.`)) return;
   try { await db.collection('suppliers').doc(id).delete(); await loadAll(); }
-  catch(e) { alert('Delete error: ' + e.message); }
+  catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 // ══════════════════════════════════════════════
@@ -2012,7 +2012,7 @@ async function saveReorderLevel(skuId, input) {
       sReorder.textContent = alerts.length;
       sReorder.style.color = alerts.length > 0 ? '#dc2626' : '#16a34a';
     }
-  } catch(e) { alert('Save error: ' + e.message); input.value = allSkus.find(s=>s.id===skuId)?.reorderLevel||''; }
+  } catch(e) { alert(fmtFirebaseError(e)); input.value = allSkus.find(s=>s.id===skuId)?.reorderLevel||''; }
 }
 
 function openSkuModal(id) {
@@ -2042,12 +2042,30 @@ async function saveSku() {
 
   const reorderLevel = parseFloat(document.getElementById('skm-reorder')?.value)||0;
   const data = { name, category: document.getElementById('skm-cat').value, unit: document.getElementById('skm-unit').value, reorderLevel };
+
+  const doSave = async () => {
+    if (id) return db.collection('skus').doc(id).update(data);
+    return db.collection('skus').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+  };
+
   try {
-    if (id) await db.collection('skus').doc(id).update(data);
-    else await db.collection('skus').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    try {
+      await doSave();
+    } catch(e1) {
+      // Retry once on transient network/transport errors
+      if (e1.code === 'unavailable' || e1.message?.includes('transport') || e1.message?.includes('network')) {
+        await new Promise(r => setTimeout(r, 1500));
+        await doSave();
+      } else { throw e1; }
+    }
     closeOverlay('modal-sku');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) {
+    const msg = e.code === 'unavailable' || e.message?.includes('transport')
+      ? `Network issue — please check your connection and try again.\n\n(The SKU may have already been saved. Refresh the page to check.)`
+      : `Save error: ${e.message}`;
+    alert(msg);
+  }
 }
 
 async function delSku(id) {
@@ -2060,7 +2078,7 @@ async function delSku(id) {
     if (!confirm(`Delete SKU "${s?.name}"?`)) return;
   }
   try { await db.collection('skus').doc(id).delete(); await loadAll(); }
-  catch(e) { alert('Delete error: ' + e.message); }
+  catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 // ── MERGE SKUs ──
@@ -2151,7 +2169,7 @@ async function executeMerge() {
     closeOverlay('modal-merge-sku');
     await loadAll();
     alert(`✅ Merge complete!\n"${del.name}" has been merged into "${keep.name}" and deleted.`);
-  } catch(e) { alert('Merge error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 // ══════════════════════════════════════════════
@@ -2668,7 +2686,7 @@ async function deleteDelivery(id) {
     // Recalculate deal status after deletion
     await recalcDealStatus(d.dealId);
     await loadAll();
-  } catch(e) { alert('Delete error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 function openEditDelivery(id) {
@@ -2700,7 +2718,7 @@ async function saveEditDelivery() {
     await recalcDealStatus(dealId);
     closeOverlay('modal-edit-delivery');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function recalcDealStatus(dealId) {
@@ -3127,7 +3145,7 @@ async function saveOpeningStock() {
     });
     closeOverlay('modal-opening');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function deleteOpening(id) {
@@ -3332,7 +3350,7 @@ async function saveUser() {
     }
     closeOverlay('modal-user');
     await loadAll();
-  } catch(e) { alert('Save error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 async function deleteUser(id, username) {
@@ -3340,7 +3358,7 @@ async function deleteUser(id, username) {
   try {
     await db.collection('users').doc(id).delete();
     await loadAll();
-  } catch(e) { alert('Delete error: ' + e.message); }
+  } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
 function toggleUmPw() {
@@ -3555,6 +3573,17 @@ function initKeyboard() {
 // ══════════════════════════════════════════════
 // AUTO CAPITALIZE (Title Case)
 // ══════════════════════════════════════════════
+// Friendly Firebase error messages
+function fmtFirebaseError(e) {
+  if (!e) return 'Unknown error';
+  const msg = e.message || '';
+  if (e.code === 'unavailable' || msg.includes('transport') || msg.includes('network') || msg.includes('Failed to fetch'))
+    return 'Network issue — please check your connection and try again.\n(If this keeps happening, refresh the page.)';
+  if (e.code === 'permission-denied') return 'Permission denied — please log out and log back in.';
+  if (e.code === 'not-found') return 'Record not found — it may have been deleted already.';
+  return msg || 'Unknown error';
+}
+
 function autoCapital(input) {
   const pos = input.selectionStart;
   input.value = input.value.replace(/\b\w/g, c => c.toUpperCase());
