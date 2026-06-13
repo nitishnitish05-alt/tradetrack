@@ -762,6 +762,10 @@
         <option value="roll">roll</option>
       </select>
     </div>
+    <div class="mfg">
+      <label>Reorder Level <span style="font-weight:400;color:#94a3b8;">(optional — alert when stock falls below this qty)</span></label>
+      <input type="number" id="skm-reorder" placeholder="e.g. 500" min="0" step="0.01"/>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeOverlay('modal-sku')">Cancel</button>
       <button class="btn btn-blue" onclick="saveSku()">Save</button>
@@ -1957,19 +1961,59 @@ function setSkuSort(key, btn) {
 
 function renderSkus() {
   const tbody = document.getElementById('sku-tbody');
-  if (!allSkus.length) { tbody.innerHTML = emptyRow(4, 'No SKUs added yet'); return; }
+  if (!allSkus.length) { tbody.innerHTML = emptyRow(5, 'No SKUs added yet'); return; }
   let skus = [...allSkus];
   if (skuSort === 'name') skus.sort((a, b) => a.name.localeCompare(b.name));
   if (skuSort === 'category') skus.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-  tbody.innerHTML = skus.map(s => `<tr>
-    <td><strong>${s.name}</strong></td>
-    <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${s.category}</span></td>
-    <td>${s.unit}</td>
-    <td style="white-space:nowrap;">
-      <button class="btn btn-outline btn-sm" onclick="openSkuModal('${s.id}')">Edit</button>
-      <button class="btn btn-red btn-sm" onclick="delSku('${s.id}')">Del</button>
-    </td>
-  </tr>`).join('');
+  tbody.innerHTML = skus.map(s => {
+    const {closing} = calcStock(s.id);
+    const isLow = s.reorderLevel > 0 && closing <= s.reorderLevel;
+    return `<tr>
+      <td><strong>${s.name}</strong></td>
+      <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${s.category}</span></td>
+      <td>${s.unit}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="number" id="rl-${s.id}"
+            value="${s.reorderLevel > 0 ? s.reorderLevel : ''}"
+            placeholder="—" min="0" step="0.01"
+            style="width:90px;padding:5px 8px;border:1.5px solid ${isLow?'#fca5a5':'#e8edf3'};border-radius:7px;font-size:12px;outline:none;font-family:inherit;background:${isLow?'#fef2f2':'white'};"
+            onchange="saveReorderLevel('${s.id}',this)"
+            onkeydown="if(event.key==='Enter')this.blur();"
+            title="Enter reorder level and press Enter or Tab to save" />
+          <span id="rl-ok-${s.id}" style="display:none;color:#16a34a;font-size:14px;">✅</span>
+          ${isLow ? '<span style="color:#dc2626;font-size:11px;font-weight:700;">⚠ Low</span>' : ''}
+        </div>
+      </td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="openSkuModal('${s.id}')">Edit</button>
+        <button class="btn btn-red btn-sm" onclick="delSku('${s.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveReorderLevel(skuId, input) {
+  const val = parseFloat(input.value) || 0;
+  const okEl = document.getElementById(`rl-ok-${skuId}`);
+  try {
+    await db.collection('skus').doc(skuId).update({ reorderLevel: val });
+    // Update in-memory
+    const sku = allSkus.find(s => s.id === skuId);
+    if (sku) sku.reorderLevel = val;
+    // Show ✅ confirmation for 2 seconds
+    if (okEl) {
+      okEl.style.display = 'inline';
+      setTimeout(() => { okEl.style.display = 'none'; }, 2000);
+    }
+    // Update reorder alert count on dashboard if visible
+    const sReorder = document.getElementById('s-reorder');
+    if (sReorder) {
+      const alerts = getReorderAlerts();
+      sReorder.textContent = alerts.length;
+      sReorder.style.color = alerts.length > 0 ? '#dc2626' : '#16a34a';
+    }
+  } catch(e) { alert('Save error: ' + e.message); input.value = allSkus.find(s=>s.id===skuId)?.reorderLevel||''; }
 }
 
 function openSkuModal(id) {
@@ -1979,6 +2023,7 @@ function openSkuModal(id) {
   document.getElementById('skm-name').value = s?.name || '';
   document.getElementById('skm-cat').value = s?.category || 'Raw Material';
   document.getElementById('skm-unit').value = s?.unit || 'kg';
+  document.getElementById('skm-reorder').value = s?.reorderLevel > 0 ? s.reorderLevel : '';
   openOverlay('modal-sku');
 }
 
@@ -2518,7 +2563,7 @@ function renderHistory() {
         supplier: d.supplierName || '—',
         skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
         skuCat: getSku(d.skuId)?.category || '—',
-        qty: d.qty, rate: d.dealRate,
+        qty: d.qty, rate: d.dealRate, actualRate: d.actualRate || null,
         notes: d.notes, by: d.createdBy,
         id: d.id, srcType: 'delivery'
       });
@@ -2532,7 +2577,7 @@ function renderHistory() {
         supplier: '—',
         skuName: i.skuName || '—', skuUnit: i.skuUnit || 'kg',
         skuCat: getSku(i.skuId)?.category || '—',
-        qty: i.qty, rate: null,
+        qty: i.qty, rate: null, actualRate: null,
         notes: i.notes, by: i.createdBy,
         id: i.id, srcType: 'issue'
       });
@@ -2567,7 +2612,10 @@ function renderHistory() {
     <td><strong>${m.skuName}</strong></td>
     <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${m.skuCat}</span></td>
     <td><strong>${fmtQ(m.qty)} ${m.skuUnit}</strong></td>
-    <td>${m.rate != null ? `<span style="color:#dc2626;font-weight:700;">₹${fmtN(m.rate)}/${m.skuUnit}</span>` : '—'}</td>
+    <td>${m.rate != null ? `<span style="color:#1565c0;font-weight:700;">₹${fmtN(m.rate)}</span>` : '—'}</td>
+    <td>${m.actualRate && m.actualRate !== m.rate
+      ? `<span style="color:#dc2626;font-weight:700;">₹${fmtN(m.actualRate)} ⚠</span>`
+      : (m.type === 'inward' ? '<span style="color:#94a3b8;font-size:11px;">Same</span>' : '—')}</td>
     <td>${m.by || '—'}</td>
     <td style="white-space:nowrap;">
       ${CU.role === 'admin' ? (m.srcType === 'delivery'
@@ -2825,6 +2873,24 @@ function calcStock(skuId) {
   return { baseQty, baseDate, purchased, issued, closing: baseQty + purchased - issued };
 }
 
+// Calculate stock as of a specific date (for historical reports)
+function calcStockAsOf(skuId, asOfDate) {
+  if (!asOfDate || asOfDate >= today()) return calcStock(skuId);
+  // Get latest opening on or before asOfDate
+  const opening = allStockOpening
+    .filter(o => o.skuId === skuId && o.date <= asOfDate)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  const baseDate = opening ? opening.date : '0000-00-00';
+  const baseQty  = opening ? (opening.qty || 0) : 0;
+  const purchased = allDeliveries
+    .filter(d => d.skuId === skuId && d.deliveryDate >= baseDate && d.deliveryDate <= asOfDate)
+    .reduce((s, d) => s + (d.qty || 0), 0);
+  const issued = allStockIssues
+    .filter(i => i.skuId === skuId && i.date >= baseDate && i.date <= asOfDate)
+    .reduce((s, i) => s + (i.qty || 0), 0);
+  return { baseQty, baseDate, purchased, issued, closing: baseQty + purchased - issued };
+}
+
 // ── RENDER STOCK TAB ──
 function renderStock(subTab, btn) {
   if (btn) {
@@ -2840,39 +2906,71 @@ function renderStock(subTab, btn) {
 
 // Current Stock summary
 let stockCatFilter = 'all';
+let stockAsOfDate = '';
+
 function renderCurrentStock(el) {
   if (!allSkus.length) { el.innerHTML = '<div class="empty"><div class="ei">📦</div><p>No SKUs added yet</p></div>'; return; }
   const cats = ['all', ...new Set(allSkus.map(s => s.category))].sort();
+  const asOf = stockAsOfDate || today();
+  const isToday = !stockAsOfDate || stockAsOfDate >= today();
   let skus = [...allSkus].sort((a,b) => a.name.localeCompare(b.name));
   if (stockCatFilter !== 'all') skus = skus.filter(s => s.category === stockCatFilter);
 
   const rows = skus.map(sku => {
-    const { baseQty, baseDate, purchased, issued, closing } = calcStock(sku.id);
-    const lowClass = (sku.minStock && closing <= sku.minStock) ? 'color:#dc2626;font-weight:800;' : 'color:#16a34a;font-weight:800;';
+    const { baseQty, baseDate, purchased, issued, closing } = calcStockAsOf(sku.id, asOf);
+    const isLow = sku.reorderLevel > 0 && closing <= sku.reorderLevel;
+    const closingStyle = isLow ? 'color:#dc2626;font-weight:800;' : 'color:#16a34a;font-weight:800;';
     return `<tr>
-      <td><strong>${sku.name}</strong></td>
+      <td><strong>${sku.name}</strong>${isLow?' <span style="font-size:10px;color:#dc2626;">⚠</span>':''}</td>
       <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${sku.category}</span></td>
       <td>${baseDate !== '0000-00-00' ? fmtD(baseDate) : '—'}</td>
       <td>${fmtQ(baseQty)} ${sku.unit}</td>
       <td style="color:#16a34a;font-weight:600;">+${fmtQ(purchased)}</td>
       <td style="color:#dc2626;font-weight:600;">-${fmtQ(issued)}</td>
-      <td style="${lowClass}">${fmtQ(closing)} ${sku.unit}</td>
-      ${CU.role==='admin' ? `<td><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td></td>'}
+      <td style="${closingStyle}">${fmtQ(closing)} ${sku.unit}</td>
+      ${CU.role==='admin' ? `<td class="no-print"><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td class="no-print"></td>'}
     </tr>`;
   }).join('');
 
   const catBtns = cats.map(c => `<button class="ftab ${c===stockCatFilter?'active':''}"
-    onclick="stockCatFilter='${c}';renderStock('current');">${c==='all'?'All Categories':c}</button>`).join('');
+    onclick="stockCatFilter='${c}';renderStock('current');">${c==='all'?'All':c}</button>`).join('');
 
   el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-      <div class="filter-row" style="margin-bottom:0;">${catBtns}</div>
-      <button class="btn btn-outline" onclick="printStockReport()">🖨 Print Stock Report</button>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:14px;">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:5px;">Category</div>
+        <div class="filter-row" style="margin-bottom:0;">${catBtns}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:5px;">As of Date <span style="font-weight:400;">(blank = today)</span></div>
+        <input type="date" id="stock-as-of" value="${stockAsOfDate}"
+          onchange="stockAsOfDate=this.value;renderStock('current');"
+          style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" />
+      </div>
+      ${stockAsOfDate?`<button class="btn btn-outline btn-sm no-print" onclick="stockAsOfDate='';document.getElementById('stock-as-of').value='';renderStock('current');">↺ Today</button>`:''}
+      <button class="btn btn-outline no-print" onclick="printCurrentStock()">🖨 Print</button>
+    </div>
+    <div style="font-size:12px;color:${isToday?'#64748b':'#1565c0'};margin-bottom:12px;font-weight:${isToday?'400':'600'};">
+      ${isToday ? `Current stock as of today — ${fmtD(today())}` : `⏱ Historical snapshot — stock as of ${fmtD(asOf)}`}
     </div>
     <div class="card"><div class="tbl-wrap"><table>
-      <thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th></th></tr></thead>
+      <thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th class="no-print"></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#94a3b8;">No SKUs in this category</td></tr>'}</tbody>
     </table></div></div>`;
+}
+
+function printCurrentStock() {
+  const asOf = stockAsOfDate || today();
+  const catLabel = stockCatFilter === 'all' ? 'All Categories' : stockCatFilter;
+  let skus = [...allSkus].sort((a,b)=>a.name.localeCompare(b.name));
+  if (stockCatFilter !== 'all') skus = skus.filter(s=>s.category===stockCatFilter);
+  const rows = skus.map(sku => {
+    const { baseQty, baseDate, purchased, issued, closing } = calcStockAsOf(sku.id, asOf);
+    const low = sku.reorderLevel > 0 && closing <= sku.reorderLevel ? ' ⚠' : '';
+    return `<tr><td>${sku.name}${low}</td><td>${sku.category}</td><td>${baseDate!=='0000-00-00'?fmtD(baseDate):'—'}</td><td>${fmtQ(baseQty)} ${sku.unit}</td><td>+${fmtQ(purchased)}</td><td>-${fmtQ(issued)}</td><td><strong>${fmtQ(closing)} ${sku.unit}</strong></td></tr>`;
+  }).join('');
+  printReport_generic(`Stock Position — ${catLabel} — As of ${fmtD(asOf)}`,
+    '<tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th></tr>', rows);
 }
 
 // Set Opening Stock
@@ -3183,34 +3281,7 @@ function renderOprActivity() {
   </tr>`).join('');
 }
 
-function printStockReport() {
-  const rows = document.querySelector('#stock-content tbody')?.innerHTML || '';
-  const catLabel = stockCatFilter === 'all' ? 'All Categories' : stockCatFilter;
-  const html = `<!DOCTYPE html><html><head><title>TradeTrack – Stock Report</title><style>
-    @page{margin:12mm;size:A4;}*{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Segoe UI',sans-serif;font-size:11px;color:#1a1a1a;}
-    .hdr{border-bottom:2px solid #0f2044;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-end;}
-    .hdr h1{font-size:16px;font-weight:900;color:#0f2044;}.hdr p{font-size:10px;color:#555;margin-top:2px;}
-    table{width:100%;border-collapse:collapse;}
-    th{background:#0f2044;color:white;padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;}
-    td{padding:5px 8px;border-bottom:1px solid #e8e8e8;font-size:10px;}
-    tr:nth-child(even){background:#f9f9f9;}
-    .footer{margin-top:12px;font-size:9px;color:#aaa;text-align:right;}
-  </style></head><body>
-    <div class="hdr">
-      <div><h1>TradeTrack – Current Stock Report</h1><p>${catLabel} · Generated by ${CU?.username||'—'}</p></div>
-      <div style="font-size:10px;color:#777;">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</div>
-    </div>
-    <table><thead><tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    <div class="footer">TradeTrack · Maruti Namkeen Procurement</div>
-  </body></html>`;
-  const frame = document.getElementById('print-frame');
-  frame.contentDocument.open();
-  frame.contentDocument.write(html);
-  frame.contentDocument.close();
-  setTimeout(() => frame.contentWindow.print(), 600);
-}
+// printCurrentStock now handles Stock Journal print (see renderCurrentStock above)
 
 // ══════════════════════════════════════════════
 // USERS
@@ -3516,27 +3587,47 @@ function renderReportsMain(subTab, btn) {
 }
 
 // ── Stock Report ──
+// Persistent state for stock report filters
+let stockRptCat = 'all';
+let stockRptDate = '';
+
 function renderRptStock(el) {
   const cats = ['all', ...new Set(allSkus.map(s => s.category))].sort();
   el.innerHTML = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
-      <div><div class="rpt-filter-label">Category</div>
-        <select id="rpt-stock-cat" onchange="renderRptStock(document.getElementById('reports-main-content'))"
+      <div>
+        <div class="rpt-filter-label">Category</div>
+        <select id="rpt-stock-cat" onchange="stockRptCat=this.value;renderRptStockTable();"
           style="padding:8px 12px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;">
-          ${cats.map(c=>`<option value="${c}">${c==='all'?'All Categories':c}</option>`).join('')}
+          ${cats.map(c=>`<option value="${c}" ${c===stockRptCat?'selected':''}>${c==='all'?'All Categories':c}</option>`).join('')}
         </select>
       </div>
+      <div>
+        <div class="rpt-filter-label">As of Date <span style="font-weight:400;color:#94a3b8;">(blank = today)</span></div>
+        <input type="date" id="rpt-stock-date" value="${stockRptDate}"
+          onchange="stockRptDate=this.value;renderRptStockTable();"
+          style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" />
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="stockRptCat='all';stockRptDate='';renderRptStock(document.getElementById('reports-main-content'))">↺ Reset</button>
       <button class="btn btn-outline" onclick="printRptStock()">🖨 Print</button>
     </div>
+    <div id="rpt-stock-date-label" style="font-size:12px;color:#64748b;margin-bottom:12px;"></div>
     <div class="card" id="rpt-stock-table-wrap"></div>`;
   renderRptStockTable();
 }
+
 function renderRptStockTable() {
-  const cat = document.getElementById('rpt-stock-cat')?.value || 'all';
+  const cat = stockRptCat;
+  const asOf = stockRptDate || today();
+  const isToday = !stockRptDate || stockRptDate >= today();
+  const label = document.getElementById('rpt-stock-date-label');
+  if (label) label.textContent = isToday
+    ? `Showing current stock as of today (${fmtD(today())})`
+    : `Showing stock as of ${fmtD(asOf)} — historical snapshot`;
   let skus = [...allSkus].sort((a,b)=>a.name.localeCompare(b.name));
   if (cat !== 'all') skus = skus.filter(s => s.category === cat);
   const rows = skus.map(sku => {
-    const { baseQty, baseDate, purchased, issued, closing } = calcStock(sku.id);
+    const { baseQty, baseDate, purchased, issued, closing } = calcStockAsOf(sku.id, asOf);
     const alert = sku.reorderLevel && closing <= sku.reorderLevel ? '🔴' : '';
     return `<tr>
       <td><strong>${sku.name}</strong> ${alert}</td>
@@ -3555,9 +3646,19 @@ function renderRptStockTable() {
     <tbody>${rows||emptyRow(8,'No SKUs found')}</tbody>
   </table></div>`;
 }
+
 function printRptStock() {
-  const rows = document.querySelector('#rpt-stock-table-wrap tbody')?.innerHTML || '';
-  printReport_generic('Stock Report', '<tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th>Reorder Level</th></tr>', rows);
+  const asOf = stockRptDate || today();
+  const cat = stockRptCat === 'all' ? 'All Categories' : stockRptCat;
+  let skus = [...allSkus].sort((a,b)=>a.name.localeCompare(b.name));
+  if (stockRptCat !== 'all') skus = skus.filter(s => s.category === stockRptCat);
+  const rows = skus.map(sku => {
+    const { baseQty, baseDate, purchased, issued, closing } = calcStockAsOf(sku.id, asOf);
+    const alert = sku.reorderLevel && closing <= sku.reorderLevel ? '⚠' : '';
+    return `<tr><td>${sku.name} ${alert}</td><td>${sku.category}</td><td>${baseDate!=='0000-00-00'?fmtD(baseDate):'—'}</td><td>${fmtQ(baseQty)} ${sku.unit}</td><td>+${fmtQ(purchased)}</td><td>-${fmtQ(issued)}</td><td><strong>${fmtQ(closing)} ${sku.unit}</strong></td><td>${sku.reorderLevel?fmtQ(sku.reorderLevel)+' '+sku.unit:'—'}</td></tr>`;
+  }).join('');
+  printReport_generic(`Stock Report — ${cat} — As of ${fmtD(asOf)}`,
+    '<tr><th>SKU</th><th>Category</th><th>Base Date</th><th>Opening</th><th>Purchased</th><th>Issued</th><th>Closing Stock</th><th>Reorder Level</th></tr>', rows);
 }
 
 // ── Pending Deals Report ──
@@ -3899,12 +4000,12 @@ function printRptVerification() {
   const cat = document.getElementById('rpt-ver-cat')?.value||'all';
   let skus = [...allSkus].sort((a,b)=>a.name.localeCompare(b.name));
   if (cat !== 'all') skus = skus.filter(s=>s.category===cat);
-  const rows = skus.map(sku=>{
-    const {closing} = calcStock(sku.id);
-    return `<tr><td>${sku.name}</td><td>${sku.category}</td><td>${sku.unit}</td><td>${fmtQ(closing)}</td><td style="border:1.5px solid #000;min-width:80px;height:30px;"></td></tr>`;
-  }).join('');
+  // NO system stock column in print — supervisor tallies manually
+  const rows = skus.map(sku=>
+    `<tr><td>${sku.name}</td><td>${sku.category}</td><td>${sku.unit}</td><td style="border:1.5px solid #000;min-width:100px;height:28px;"></td></tr>`
+  ).join('');
   printReport_generic(`Physical Stock Verification — ${cat==='all'?'All Categories':cat}`,
-    '<tr><th>SKU Name</th><th>Category</th><th>Unit</th><th>System Stock</th><th>Physical Count</th></tr>', rows);
+    '<tr><th>SKU Name</th><th>Category</th><th>Unit</th><th style="min-width:100px;">Physical Count</th></tr>', rows);
 }
 
 // ── Generic print function for reports ──
