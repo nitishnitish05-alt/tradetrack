@@ -460,6 +460,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-outline" onclick="findSimilarSkus()">🔍 Find Similar</button>
               <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge</button>
+              <button class="btn btn-outline" onclick="autoSuggestAllReorderLevels()" title="Calculate suggested reorder levels based on consumption history">⚡ Auto-suggest Reorder</button>
               <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
             </div>
           </div>
@@ -763,7 +764,11 @@
     </div>
     <div class="mfg">
       <label>Reorder Level <span style="font-weight:400;color:#94a3b8;">(optional — alert when stock falls below this qty)</span></label>
-      <input type="number" id="skm-reorder" placeholder="e.g. 500" min="0" step="0.01"/>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="skm-reorder" placeholder="e.g. 500" min="0" step="0.01" style="flex:1;"/>
+        <button class="btn btn-outline btn-sm" type="button" onclick="suggestReorderForModal()" title="Auto-calculate based on 30-day consumption">⚡ Suggest</button>
+      </div>
+      <div id="skm-reorder-hint" style="font-size:11px;color:#64748b;margin-top:4px;display:none;"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeOverlay('modal-sku')">Cancel</button>
@@ -1001,6 +1006,7 @@ const PANEL_SECTION_MAP = {
 };
 
 let currentSectionId = '';
+let currentSubId = ''; // tracks active sub-tab within a section
 let sidebarCollapsed = false;
 
 function buildSidebar() {
@@ -1046,12 +1052,20 @@ function switchSection(sectionId, subId) {
 
   // If section has sub-items, determine which sub to show
   if (sec.subs && sec.subs.length > 0) {
-    const targetSub = subId ? sec.subs.find(s => s.id === subId) : sec.subs[0];
-    if (targetSub) {
-      renderSubTabBar(sec, targetSub.id);
-      switchSubPanel(sec, targetSub);
+    let targetSub;
+    if (subId) {
+      // Explicit sub requested (user clicked a sub-tab)
+      targetSub = sec.subs.find(s => s.id === subId);
+    } else if (currentSubId) {
+      // Restore previously active sub-tab (e.g. after loadAll re-render)
+      targetSub = sec.subs.find(s => s.id === currentSubId);
     }
+    if (!targetSub) targetSub = sec.subs[0]; // fallback to first
+    currentSubId = targetSub.id; // remember for next render
+    renderSubTabBar(sec, targetSub.id);
+    switchSubPanel(sec, targetSub);
   } else {
+    currentSubId = '';
     // No subs — hide sub-tab bar, show panel directly
     document.getElementById('sub-tab-bar').style.display = 'none';
     showPanel(sec.panel);
@@ -2575,11 +2589,14 @@ function renderHistory() {
   // Inwards — deliveries
   if (histType !== 'outward') {
     allDeliveries.forEach(d => {
+      // Category lookup: try skuId first, then fall back to skuName lookup
+      const skuByName = !getSku(d.skuId) ? allSkus.find(s => s.name.toLowerCase() === (d.skuName||'').toLowerCase()) : null;
+      const resolvedSku = getSku(d.skuId) || skuByName;
       movements.push({
         date: d.deliveryDate, type: 'inward',
         supplier: d.supplierName || '—',
         skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
-        skuCat: getSku(d.skuId)?.category || '—',
+        skuCat: resolvedSku?.category || '—',
         qty: d.qty, rate: d.dealRate, actualRate: d.actualRate || null,
         notes: d.notes, by: d.createdBy,
         id: d.id, srcType: 'delivery'
@@ -2872,14 +2889,27 @@ function getLatestOpening(skuId) {
 }
 
 // Calculate current stock for a SKU
+// ── Delivery matcher: matches by skuId, OR by skuName when skuId is orphaned ──
+// This handles cases where a SKU was deleted/recreated (new Firestore ID)
+// but old deliveries still reference the old ID.
+function deliveryMatchesSku(d, skuId) {
+  if (d.skuId === skuId) return true; // exact match
+  // Fallback: if the delivery's skuId doesn't exist in allSkus (orphaned),
+  // match by skuName against the current SKU's name
+  const currentSku = getSku(skuId);
+  if (!currentSku) return false;
+  if (getSku(d.skuId)) return false; // delivery's skuId IS valid — different SKU, skip
+  return (d.skuName || '').toLowerCase() === currentSku.name.toLowerCase();
+}
+
 function calcStock(skuId) {
   const opening = getLatestOpening(skuId);
   const baseDate = opening ? opening.date : '0000-00-00';
   const baseQty  = opening ? (opening.qty || 0) : 0;
 
-  // Sum deliveries on/after base date
+  // Sum deliveries on/after base date (with orphaned skuId fallback)
   const purchased = allDeliveries
-    .filter(d => d.skuId === skuId && d.deliveryDate >= baseDate)
+    .filter(d => deliveryMatchesSku(d, skuId) && d.deliveryDate >= baseDate)
     .reduce((s, d) => s + (d.qty || 0), 0);
 
   // Sum issues on/after base date
@@ -2900,7 +2930,7 @@ function calcStockAsOf(skuId, asOfDate) {
   const baseDate = opening ? opening.date : '0000-00-00';
   const baseQty  = opening ? (opening.qty || 0) : 0;
   const purchased = allDeliveries
-    .filter(d => d.skuId === skuId && d.deliveryDate >= baseDate && d.deliveryDate <= asOfDate)
+    .filter(d => deliveryMatchesSku(d, skuId) && d.deliveryDate >= baseDate && d.deliveryDate <= asOfDate)
     .reduce((s, d) => s + (d.qty || 0), 0);
   const issued = allStockIssues
     .filter(i => i.skuId === skuId && i.date >= baseDate && i.date <= asOfDate)
@@ -3094,8 +3124,8 @@ function renderLedgerTable() {
   // Build all events from baseDate onwards
   const events = [];
   events.push({ date: baseDate, type: 'Opening', qty: opening.qty, note: opening.notes || '' });
-  allDeliveries.filter(d => d.skuId === skuId && d.deliveryDate >= baseDate)
-    .forEach(d => events.push({ date: d.deliveryDate, type: 'Purchase', qty: d.qty, note: d.notes || '' }));
+  allDeliveries.filter(d => deliveryMatchesSku(d, skuId) && d.deliveryDate >= baseDate)
+    .forEach(d => events.push({ date: d.deliveryDate, type: 'Purchase', qty: d.qty, note: d.supplierName ? `${d.supplierName}${d.notes?', '+d.notes:''}` : (d.notes || '') }));
   allStockIssues.filter(i => i.skuId === skuId && i.date >= baseDate)
     .forEach(i => events.push({ date: i.date, type: 'Issue', qty: -i.qty, note: i.notes || '' }));
   events.sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
@@ -3592,7 +3622,70 @@ function autoCapital(input) {
 
 
 // ══════════════════════════════════════════════
-// REPORTS MAIN (new unified reports section)
+// AUTO-SUGGEST REORDER LEVELS
+// ══════════════════════════════════════════════
+
+// Calculate suggested reorder level for a single SKU
+// Based on avg daily consumption (last 30 days) × buffer days
+function calcSuggestedReorder(skuId, bufferDays = 15) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const issues = allStockIssues.filter(i => i.skuId === skuId && i.date >= cutoffStr);
+  if (!issues.length) return null; // No consumption data
+  const totalIssued = issues.reduce((s, i) => s + (i.qty || 0), 0);
+  const avgPerDay = totalIssued / 30;
+  return Math.ceil(avgPerDay * bufferDays);
+}
+
+// ⚡ Suggest button inside Edit SKU modal
+function suggestReorderForModal() {
+  const skuId = document.getElementById('sku-eid').value;
+  const hint = document.getElementById('skm-reorder-hint');
+  if (!skuId) {
+    if (hint) { hint.style.display = 'block'; hint.textContent = 'Save SKU first, then suggest reorder level after some consumption history exists.'; }
+    return;
+  }
+  const suggested = calcSuggestedReorder(skuId, 15);
+  const input = document.getElementById('skm-reorder');
+  if (suggested === null) {
+    if (hint) { hint.style.display = 'block'; hint.style.color = '#d97706'; hint.textContent = '⚠ No consumption history in last 30 days. Issue some stock first.'; }
+    return;
+  }
+  input.value = suggested;
+  const avgPerDay = (suggested / 15).toFixed(1);
+  if (hint) {
+    hint.style.display = 'block';
+    hint.style.color = '#16a34a';
+    hint.textContent = `⚡ Suggested: ${fmtQ(suggested)} (avg ${avgPerDay}/day × 15-day buffer). Edit if needed, then Save.`;
+  }
+}
+
+// ⚡ Auto-suggest ALL — fills inline inputs for all SKUs in table
+function autoSuggestAllReorderLevels() {
+  const bufferDays = 15;
+  let filled = 0, skipped = 0;
+
+  allSkus.forEach(sku => {
+    const suggested = calcSuggestedReorder(sku.id, bufferDays);
+    const input = document.getElementById(`rl-${sku.id}`);
+    if (!input) return;
+    if (suggested === null) {
+      skipped++;
+      return;
+    }
+    input.value = suggested;
+    input.style.borderColor = '#f59e0b';
+    input.style.background = '#fffbeb';
+    filled++;
+  });
+
+  // Show summary
+  const msg = filled > 0
+    ? `⚡ Suggested reorder levels filled for ${filled} SKU${filled>1?'s':''} (${skipped} skipped — no consumption data).\n\nFields are highlighted in yellow — review each value and press Enter/Tab on any you want to save. Leave a field unchanged to keep existing value.`
+    : `No consumption data found for any SKU in the last 30 days.\n\nPlease record some "Issue to Production" entries first.`;
+  alert(msg);
+}
 // ══════════════════════════════════════════════
 let reportsSubTab = 'stock';
 
@@ -3922,7 +4015,7 @@ function renderRptMonthlyTable() {
       const catDels = dels.filter(d=>{
         const deal = allDeals.find(dl=>dl.id===d.dealId);
         if (!deal) return false;
-        return getSku(deal.skuId).category === cat;
+        return getSku(deal.skuId)?.category === cat;
       });
       const catTotal = catDels.reduce((s,d)=>{
         return s+(d.qty||0)*(d.actualRate||d.dealRate||0);
