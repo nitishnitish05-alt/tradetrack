@@ -2589,9 +2589,9 @@ function renderHistory() {
   // Inwards — deliveries
   if (histType !== 'outward') {
     allDeliveries.forEach(d => {
-      // Category lookup: try skuId first, then fall back to skuName lookup
-      const skuByName = !getSku(d.skuId) ? allSkus.find(s => s.name.toLowerCase() === (d.skuName||'').toLowerCase()) : null;
-      const resolvedSku = getSku(d.skuId) || skuByName;
+      // Resolve SKU: try direct ID first, then fallback to name-match for orphaned IDs
+      const directSku = allSkus.find(s => s.id === d.skuId);
+      const resolvedSku = directSku || allSkus.find(s => s.name.trim().toLowerCase() === (d.skuName || '').trim().toLowerCase());
       movements.push({
         date: d.deliveryDate, type: 'inward',
         supplier: d.supplierName || '—',
@@ -2890,16 +2890,17 @@ function getLatestOpening(skuId) {
 
 // Calculate current stock for a SKU
 // ── Delivery matcher: matches by skuId, OR by skuName when skuId is orphaned ──
-// This handles cases where a SKU was deleted/recreated (new Firestore ID)
-// but old deliveries still reference the old ID.
+// IMPORTANT: must use allSkus.find() NOT getSku() — getSku() has a truthy fallback object
+// that would make the orphaned check always fail.
 function deliveryMatchesSku(d, skuId) {
-  if (d.skuId === skuId) return true; // exact match
-  // Fallback: if the delivery's skuId doesn't exist in allSkus (orphaned),
-  // match by skuName against the current SKU's name
-  const currentSku = getSku(skuId);
+  if (d.skuId === skuId) return true; // exact match — fastest path
+  // Check if delivery's skuId is orphaned (doesn't exist in current allSkus)
+  const deliverySkuExists = allSkus.some(s => s.id === d.skuId);
+  if (deliverySkuExists) return false; // delivery references a DIFFERENT valid SKU — not a match
+  // Delivery has orphaned skuId — match by stored skuName against current SKU's name
+  const currentSku = allSkus.find(s => s.id === skuId);
   if (!currentSku) return false;
-  if (getSku(d.skuId)) return false; // delivery's skuId IS valid — different SKU, skip
-  return (d.skuName || '').toLowerCase() === currentSku.name.toLowerCase();
+  return (d.skuName || '').trim().toLowerCase() === currentSku.name.trim().toLowerCase();
 }
 
 function calcStock(skuId) {
