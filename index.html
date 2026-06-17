@@ -67,6 +67,7 @@
     /* ── MAIN CONTENT ── */
     .main-content{flex:1;overflow:hidden;min-width:0;padding:0;display:flex;flex-direction:column;}
     .content-inner{flex:1;padding:22px 24px;overflow-y:auto;overflow-x:hidden;}
+    body.kb-visible .content-inner{padding-bottom:52px;}
     /* Sticky table header within scrollable content-inner */
     .tbl-sticky thead th{position:sticky;top:0;z-index:10;background:#f8fafc;}
 
@@ -1114,7 +1115,7 @@ function triggerPanelRender(panelId, mode, stockSub) {
     if (stockSub) renderStock(stockSub);
     else renderStock('current');
   }
-  else if (panelId === 'reports-main') renderReportsMain('stock');
+  else if (panelId === 'reports-main') renderReportsMain();
   else if (panelId === 'users') renderUsers();
 }
 
@@ -3597,9 +3598,9 @@ function initKeyboard() {
   // Show keyboard hints bar for desktop users
   if (window.innerWidth > 768) {
     document.getElementById('kb-hints').style.display = 'flex';
-    // Add bottom padding to main content to not overlap hints
-    const mc = document.querySelector('.main-content');
-    if (mc) mc.style.paddingBottom = '40px';
+    document.body.classList.add("kb-visible");
+
+
   }
 }
 
@@ -3693,11 +3694,23 @@ function autoSuggestAllReorderLevels() {
 let reportsSubTab = 'stock';
 
 function renderReportsMain(subTab, btn) {
+  reportsSubTab = subTab || reportsSubTab;
+  // Always sync the active stab highlight to match current reportsSubTab
+  const tabMap = {
+    'stock':'stock',  'pending':'pending', 'supplier-history':'supplier-history',
+    'rate-variance':'rate-variance', 'consumption':'consumption',
+    'monthly':'monthly', 'reorder':'reorder', 'verification':'verification'
+  };
   if (btn) {
     document.querySelectorAll('#reports-subtabs .stab').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+  } else {
+    // Re-entering from another section — restore active highlight by matching onclick text
+    document.querySelectorAll('#reports-subtabs .stab').forEach(b => {
+      const matches = b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + reportsSubTab + "'");
+      b.classList.toggle('active', !!matches);
+    });
   }
-  reportsSubTab = subTab || reportsSubTab;
   const el = document.getElementById('reports-main-content');
   if (!el) return;
   if (reportsSubTab === 'stock') renderRptStock(el);
@@ -3941,6 +3954,8 @@ function printRptRateVariance() {
 
 // ── SKU Consumption Report ──
 let conSort = 'sku'; // 'sku' | 'urgent' | 'days_asc' | 'days_desc' | 'category'
+let conFromDate = ''; // persists across section switches
+let conToDate = '';   // persists across section switches
 function setConSort(s, btn) {
   conSort = s;
   document.querySelectorAll('#con-sort-bar .ftab').forEach(b => b.classList.remove('active'));
@@ -3950,11 +3965,14 @@ function setConSort(s, btn) {
 function renderRptConsumption(el) {
   const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate()-30);
   const defFrom = thirtyDaysAgo.toISOString().slice(0,10);
+  // Restore persisted dates, or use defaults on first visit
+  if (!conFromDate) conFromDate = defFrom;
+  if (!conToDate)   conToDate   = today();
   conSort = 'sku';
   el.innerHTML = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end;">
-      <div><div class="rpt-filter-label">From</div><input type="date" id="rpt-con-from" value="${defFrom}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
-      <div><div class="rpt-filter-label">To</div><input type="date" id="rpt-con-to" value="${today()}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <div><div class="rpt-filter-label">From</div><input type="date" id="rpt-con-from" value="${conFromDate}" onchange="conFromDate=this.value" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <div><div class="rpt-filter-label">To</div><input type="date" id="rpt-con-to" value="${conToDate}" onchange="conToDate=this.value" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
       <button class="btn btn-blue btn-sm" onclick="renderRptConsumptionTable()">Apply</button>
       <button class="btn btn-outline btn-sm" onclick="printRptConsumption()">🖨 Print</button>
     </div>
@@ -3972,6 +3990,9 @@ function renderRptConsumption(el) {
 function renderRptConsumptionTable() {
   const from = document.getElementById('rpt-con-from')?.value||'';
   const to   = document.getElementById('rpt-con-to')?.value||today();
+  // Persist dates so they survive section switches
+  if (from) conFromDate = from;
+  if (to)   conToDate   = to;
   const days = from ? Math.max(1,(new Date(to)-new Date(from))/(1000*60*60*24)) : 30;
   // Build data objects first so we can sort before rendering
   let data = allSkus.filter(sku => {
