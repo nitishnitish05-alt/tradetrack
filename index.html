@@ -14,7 +14,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Segoe UI',Tahoma,sans-serif;background:#eef2f7;color:#1e293b;min-height:100vh;display:flex;flex-direction:column;}
+    body{font-family:'Segoe UI',Tahoma,sans-serif;background:#eef2f7;color:#1e293b;height:100vh;overflow:hidden;display:flex;flex-direction:column;}
     button{cursor:pointer;font-family:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
     input,select,textarea{font-family:inherit;}
 
@@ -65,7 +65,7 @@
     .sidebar.collapsed .snav-item:hover::after{opacity:1;}
 
     /* ── MAIN CONTENT ── */
-    .main-content{flex:1;overflow:hidden;min-width:0;padding:0;display:flex;flex-direction:column;}
+    .main-content{flex:1;overflow:hidden;min-width:0;min-height:0;padding:0;display:flex;flex-direction:column;}
     .content-inner{flex:1;padding:22px 24px;overflow-y:auto;overflow-x:hidden;}
     body.kb-visible .content-inner{padding-bottom:52px;}
     /* Sticky table header within scrollable content-inner */
@@ -79,8 +79,8 @@
     .stab.active{color:#1565c0;border-bottom-color:#1565c0;}
 
     /* ── PANELS ── */
-    .panel{display:none;flex:1;}
-    .panel.active{display:flex;flex-direction:column;}
+    .panel{display:none;flex:1;min-height:0;}
+    .panel.active{display:flex;flex-direction:column;min-height:0;}
     .panel-body{padding:22px 24px;}
 
     /* ── REPORTS SUB-TAB BAR ── */
@@ -1074,7 +1074,8 @@ function switchSection(sectionId, subId) {
     showPanel(sec.panel);
     triggerPanelRender(sec.panel, null, null);
   }
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const scroller = document.querySelector('.panel.active .content-inner');
+  if (scroller) scroller.scrollTop = 0;
 }
 
 function renderSubTabBar(sec, activeSub) {
@@ -1130,7 +1131,7 @@ function toggleSidebar() {
 function switchTab(id, scrollToTop) {
   const sectionId = PANEL_SECTION_MAP[id] || id;
   switchSection(sectionId, id);
-  if (scrollToTop) window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (scrollToTop) { const sc = document.querySelector('.panel.active .content-inner'); if (sc) sc.scrollTop = 0; }
 }
 
 
@@ -1687,14 +1688,15 @@ async function deleteDeal(id) {
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const numDels = getDels(id).length;
   if (!confirm(`Delete deal:\n${sup.name} – ${sku.name}\n${fmtQ(deal.totalQty)} ${sku.unit||'kg'} @ ₹${deal.rate}\n\nThis will also delete ${numDels} delivery record(s). Cannot be undone.`)) return;
-  const scrollY = window.scrollY;
+  const _dsc = document.querySelector('#panel-deals .content-inner');
+  const scrollY = _dsc ? _dsc.scrollTop : 0;
   try {
     const batch = db.batch();
     batch.delete(db.collection('deals').doc(id));
     getDels(id).forEach(d => batch.delete(db.collection('deliveries').doc(d.id)));
     await batch.commit();
     await loadAll();
-    window.scrollTo({ top: scrollY });
+    const _dsr = document.querySelector('#panel-deals .content-inner'); if (_dsr) _dsr.scrollTop = scrollY;
   } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
@@ -1705,7 +1707,8 @@ async function markDealFulfilled(id, fromModal) {
   const delivered = getDelivered(id);
   const remaining = (deal.totalQty || 0) - delivered;
   if (!confirm(`Mark this deal as FULFILLED?\n\n${sup.name} — ${sku.name}\nDelivered: ${fmtQ(delivered)} ${sku.unit||'kg'}\nShort by: ${fmtQ(remaining)} ${sku.unit||'kg'}\n\nThe deal will be closed. You can reopen it later if needed.`)) return;
-  const scrollY = window.scrollY;
+  const _sc1 = document.querySelector('#panel-deals .content-inner');
+  const scrollY = _sc1 ? _sc1.scrollTop : 0;
   try {
     await db.collection('deals').doc(id).update({
       status: 'FULFILLED',
@@ -1716,7 +1719,7 @@ async function markDealFulfilled(id, fromModal) {
     });
     if (fromModal) closeOverlay('modal-detail');
     await loadAll();
-    if (!fromModal) window.scrollTo({ top: scrollY });
+    if (!fromModal) { const _sr1 = document.querySelector('#panel-deals .content-inner'); if (_sr1) _sr1.scrollTop = scrollY; }
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -1725,7 +1728,8 @@ async function reopenDeal(id, fromModal) {
   if (!deal) return;
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   if (!confirm(`Reopen this deal?\n\n${sup.name} — ${sku.name}\nStatus: ${deal.status}\n\nIt will return to OPEN and appear in pending contracts.`)) return;
-  const scrollY = window.scrollY;
+  const _sc2 = document.querySelector('#panel-deals .content-inner');
+  const scrollY = _sc2 ? _sc2.scrollTop : 0;
   try {
     await db.collection('deals').doc(id).update({
       status: 'OPEN',
@@ -1735,7 +1739,7 @@ async function reopenDeal(id, fromModal) {
     });
     if (fromModal) closeOverlay('modal-detail');
     await loadAll();
-    if (!fromModal) window.scrollTo({ top: scrollY });
+    if (!fromModal) { const _sr2 = document.querySelector('#panel-deals .content-inner'); if (_sr2) _sr2.scrollTop = scrollY; }
   } catch(e) { alert('Error: ' + e.message); }
 }
 
