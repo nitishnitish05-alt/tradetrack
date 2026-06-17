@@ -65,8 +65,10 @@
     .sidebar.collapsed .snav-item:hover::after{opacity:1;}
 
     /* ── MAIN CONTENT ── */
-    .main-content{flex:1;overflow-y:auto;min-width:0;padding:0;display:flex;flex-direction:column;}
-    .content-inner{flex:1;padding:22px 24px;}
+    .main-content{flex:1;overflow:hidden;min-width:0;padding:0;display:flex;flex-direction:column;}
+    .content-inner{flex:1;padding:22px 24px;overflow-y:auto;overflow-x:hidden;}
+    /* Sticky table header within scrollable content-inner */
+    .tbl-sticky thead th{position:sticky;top:0;z-index:10;background:#f8fafc;}
 
     /* ── SUB-TAB BAR ── */
     #sub-tab-bar{display:none;background:white;border-bottom:2px solid #e8edf3;padding:0 24px;gap:4px;overflow-x:auto;flex-shrink:0;scrollbar-width:none;}
@@ -113,9 +115,9 @@
     .ftab.active{background:#1565c0;color:white;border-color:#1565c0;}
 
     /* ── TABLES ── */
-    .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;overflow-y:visible;}
     table{width:100%;border-collapse:collapse;font-size:13px;}
-    thead th{background:#f8fafc;padding:10px 13px;text-align:left;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e8edf3;white-space:nowrap;}
+    thead th{background:#f8fafc;padding:10px 13px;text-align:left;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #e8edf3;white-space:nowrap;position:sticky;top:-1px;z-index:8;box-shadow:0 1px 0 #e8edf3;}
     tbody td{padding:11px 13px;border-bottom:1px solid #f1f5f9;color:#334155;vertical-align:middle;}
     tbody tr:hover{background:#f8fafc;}
     tbody tr:last-child td{border-bottom:none;}
@@ -3938,15 +3940,31 @@ function printRptRateVariance() {
 }
 
 // ── SKU Consumption Report ──
+let conSort = 'sku'; // 'sku' | 'urgent' | 'days_asc' | 'days_desc' | 'category'
+function setConSort(s, btn) {
+  conSort = s;
+  document.querySelectorAll('#con-sort-bar .ftab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderRptConsumptionTable();
+}
 function renderRptConsumption(el) {
   const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate()-30);
   const defFrom = thirtyDaysAgo.toISOString().slice(0,10);
+  conSort = 'sku';
   el.innerHTML = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end;">
       <div><div class="rpt-filter-label">From</div><input type="date" id="rpt-con-from" value="${defFrom}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
       <div><div class="rpt-filter-label">To</div><input type="date" id="rpt-con-to" value="${today()}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
       <button class="btn btn-blue btn-sm" onclick="renderRptConsumptionTable()">Apply</button>
       <button class="btn btn-outline btn-sm" onclick="printRptConsumption()">🖨 Print</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;" id="con-sort-bar">
+      <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">Sort:</span>
+      <button class="ftab active" onclick="setConSort('sku',this)">A→Z</button>
+      <button class="ftab" onclick="setConSort('urgent',this)" style="background:#fef2f2;color:#dc2626;border-color:#fecaca;">🔴 Critical First</button>
+      <button class="ftab" onclick="setConSort('days_asc',this)">⬆ Days Left</button>
+      <button class="ftab" onclick="setConSort('days_desc',this)">⬇ Days Left</button>
+      <button class="ftab" onclick="setConSort('category',this)">Category</button>
     </div>
     <div class="card" id="rpt-con-wrap"></div>`;
   renderRptConsumptionTable();
@@ -3955,26 +3973,59 @@ function renderRptConsumptionTable() {
   const from = document.getElementById('rpt-con-from')?.value||'';
   const to   = document.getElementById('rpt-con-to')?.value||today();
   const days = from ? Math.max(1,(new Date(to)-new Date(from))/(1000*60*60*24)) : 30;
-  const rows = allSkus.filter(sku => {
+  // Build data objects first so we can sort before rendering
+  let data = allSkus.filter(sku => {
     return allStockIssues.some(i => i.skuId===sku.id && (!from||i.date>=from) && i.date<=to);
   }).map(sku => {
     const issues = allStockIssues.filter(i=>i.skuId===sku.id&&(!from||i.date>=from)&&i.date<=to);
     const totalIssued = issues.reduce((s,i)=>s+(i.qty||0),0);
     const avgPerDay = totalIssued/days;
     const {closing} = calcStock(sku.id);
-    const daysLeft = avgPerDay>0 ? Math.floor(closing/avgPerDay) : '∞';
-    const lowWarning = typeof daysLeft==='number' && daysLeft<15;
-    return `<tr>
-      <td><strong>${sku.name}</strong></td>
+    const daysLeft = avgPerDay>0 ? Math.floor(closing/avgPerDay) : Infinity;
+    return { sku, totalIssued, avgPerDay, closing, daysLeft };
+  });
+  // Apply sort
+  const sortMode = typeof conSort !== 'undefined' ? conSort : 'sku';
+  if (sortMode === 'urgent') {
+    // Red (<15 days) first by days asc, then green by days asc
+    data.sort((a,b) => {
+      const aRed = a.daysLeft < 15, bRed = b.daysLeft < 15;
+      if (aRed && !bRed) return -1;
+      if (!aRed && bRed) return 1;
+      return (a.daysLeft===Infinity?99999:a.daysLeft) - (b.daysLeft===Infinity?99999:b.daysLeft);
+    });
+  } else if (sortMode === 'days_asc') {
+    data.sort((a,b) => (a.daysLeft===Infinity?99999:a.daysLeft) - (b.daysLeft===Infinity?99999:b.daysLeft));
+  } else if (sortMode === 'days_desc') {
+    data.sort((a,b) => (b.daysLeft===Infinity?-99999:b.daysLeft) - (a.daysLeft===Infinity?-99999:a.daysLeft));
+  } else if (sortMode === 'category') {
+    data.sort((a,b) => (a.sku.category||'').localeCompare(b.sku.category||'') || a.sku.name.localeCompare(b.sku.name));
+  } else {
+    data.sort((a,b) => a.sku.name.localeCompare(b.sku.name));
+  }
+  // Critical banner
+  const criticalCount = data.filter(d => d.daysLeft < 15).length;
+  const criticalBanner = criticalCount > 0
+    ? `<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:18px;">🔴</span>
+        <span style="font-size:13px;font-weight:700;color:#dc2626;">${criticalCount} SKU${criticalCount>1?'s':''} critically low — will run out within 15 days at current rate.</span>
+        ${sortMode!=='urgent'?`<button class="btn btn-sm" style="margin-left:auto;background:#dc2626;color:white;border:none;" onclick="setConSort('urgent',document.querySelector('#con-sort-bar .ftab[onclick*=urgent]'))">🔴 Show Critical First</button>`:'<span style="margin-left:auto;font-size:12px;color:#dc2626;font-weight:600;">↑ Sorted by urgency</span>'}
+      </div>`
+    : '';
+  const rows = data.map(({sku, totalIssued, avgPerDay, closing, daysLeft}) => {
+    const lowWarning = daysLeft < 15;
+    const daysDisplay = daysLeft === Infinity ? '∞' : daysLeft;
+    return `<tr style="${lowWarning?'background:#fff8f8;':''}">
+      <td><strong>${lowWarning?'🔴 ':''}${sku.name}</strong></td>
       <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${sku.category}</span></td>
       <td>${fmtQ(totalIssued)} ${sku.unit}</td>
       <td>${fmtQ(avgPerDay.toFixed(2))} ${sku.unit}/day</td>
       <td><strong style="color:${closing>0?'#16a34a':'#dc2626'}">${fmtQ(closing)} ${sku.unit}</strong></td>
-      <td style="color:${lowWarning?'#dc2626':'#16a34a'};font-weight:700;">${daysLeft} days</td>
+      <td style="color:${lowWarning?'#dc2626':'#16a34a'};font-weight:700;">${daysDisplay} days</td>
     </tr>`;
   }).join('');
   const wrap = document.getElementById('rpt-con-wrap');
-  if (wrap) wrap.innerHTML = `<div class="tbl-wrap"><table>
+  if (wrap) wrap.innerHTML = `${criticalBanner}<div class="tbl-wrap"><table>
     <thead><tr><th>SKU</th><th>Category</th><th>Total Issued</th><th>Avg/Day</th><th>Current Stock</th><th>Days Remaining</th></tr></thead>
     <tbody>${rows||emptyRow(6,'No issues in selected period')}</tbody>
   </table></div>`;
