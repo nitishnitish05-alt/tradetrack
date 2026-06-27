@@ -463,6 +463,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-outline" onclick="findSimilarSkus()">🔍 Find Similar</button>
               <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge</button>
+              <button class="btn btn-outline" onclick="repairOrphans()" title="Find records pointing to deleted SKUs and reassign by name match">🔧 Repair Orphans</button>
               <button class="btn btn-outline" onclick="autoSuggestAllReorderLevels()" title="Calculate suggested reorder levels based on consumption history">⚡ Auto-suggest Reorder</button>
               <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
             </div>
@@ -2154,33 +2155,51 @@ async function executeMerge() {
   const del  = allSkus.find(s => s.id === delId);
   if (!confirm(`Final confirmation:\n\n✅ Keep: ${keep.name}\n🗑 Delete: ${del.name}\n\nAll records from "${del.name}" will be moved to "${keep.name}" and "${del.name}" will be permanently deleted.\n\nThis cannot be undone.`)) return;
 
+  // Orphan-aware matcher: catches records with orphaned skuId whose stored skuName
+  // matches the SKU being deleted (or its previous deletions of the same name).
+  const delNameLower = (del.name || '').trim().toLowerCase();
+  const validSkuIds = new Set(allSkus.map(s => s.id));
+  const matchesDelSku = (rec) => {
+    if (rec.skuId === delId) return true; // exact match
+    // If this record's skuId points to a valid OTHER SKU, it's not a match
+    if (validSkuIds.has(rec.skuId)) return false;
+    // Orphaned skuId — match by stored name
+    return (rec.skuName || '').trim().toLowerCase() === delNameLower;
+  };
+
   try {
     const batch = db.batch();
+    let dealCount = 0, delCount = 0, openCount = 0, issueCount = 0;
 
-    // Reassign deals
+    // Reassign deals (deals don't have skuName field, so we can only match by ID + check via delivery names)
+    // For deals: match by skuId only since they don't store skuName
     allDeals.filter(d => d.skuId === delId).forEach(d => {
       batch.update(db.collection('deals').doc(d.id), { skuId: keepId });
+      dealCount++;
     });
 
-    // Reassign deliveries
-    allDeliveries.filter(d => d.skuId === delId).forEach(d => {
+    // Reassign deliveries (orphan-aware)
+    allDeliveries.filter(matchesDelSku).forEach(d => {
       batch.update(db.collection('deliveries').doc(d.id), {
         skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
       });
+      delCount++;
     });
 
-    // Reassign stock opening
-    allStockOpening.filter(s => s.skuId === delId).forEach(s => {
+    // Reassign stock opening (orphan-aware)
+    allStockOpening.filter(matchesDelSku).forEach(s => {
       batch.update(db.collection('stock_opening').doc(s.id), {
         skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
       });
+      openCount++;
     });
 
-    // Reassign stock issues
-    allStockIssues.filter(s => s.skuId === delId).forEach(s => {
+    // Reassign stock issues (orphan-aware)
+    allStockIssues.filter(matchesDelSku).forEach(s => {
       batch.update(db.collection('stock_issues').doc(s.id), {
         skuId: keepId, skuName: keep.name, skuUnit: keep.unit || 'kg'
       });
+      issueCount++;
     });
 
     // Delete duplicate SKU
@@ -2189,7 +2208,106 @@ async function executeMerge() {
     await batch.commit();
     closeOverlay('modal-merge-sku');
     await loadAll();
-    alert(`✅ Merge complete!\n"${del.name}" has been merged into "${keep.name}" and deleted.`);
+    alert(`✅ Merge complete!\n"${del.name}" has been merged into "${keep.name}" and deleted.\n\nReassigned: ${dealCount} deal(s), ${delCount} delivery(s), ${openCount} opening(s), ${issueCount} issue(s).`);
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// ── Repair Orphans ──
+// Finds records (deliveries, issues, stock openings) whose skuId points to a
+// deleted SKU, but whose stored skuName matches an existing SKU — and reassigns them.
+async function repairOrphans() {
+  const validSkuIds = new Set(allSkus.map(s => s.id));
+  const nameToSku = new Map();
+  allSkus.forEach(s => nameToSku.set((s.name || '').trim().toLowerCase(), s));
+
+  // Scan all three collections for orphans whose name matches an existing SKU
+  const orphanedDels = allDeliveries.filter(d =>
+    !validSkuIds.has(d.skuId) && nameToSku.has((d.skuName || '').trim().toLowerCase())
+  );
+  const orphanedIssues = allStockIssues.filter(i =>
+    !validSkuIds.has(i.skuId) && nameToSku.has((i.skuName || '').trim().toLowerCase())
+  );
+  const orphanedOpenings = allStockOpening.filter(o =>
+    !validSkuIds.has(o.skuId) && nameToSku.has((o.skuName || '').trim().toLowerCase())
+  );
+
+  // Also report orphans whose name DOESN'T match any existing SKU (unrecoverable, just info)
+  const unrecoverableDels = allDeliveries.filter(d =>
+    !validSkuIds.has(d.skuId) && !nameToSku.has((d.skuName || '').trim().toLowerCase())
+  );
+  const unrecoverableIssues = allStockIssues.filter(i =>
+    !validSkuIds.has(i.skuId) && !nameToSku.has((i.skuName || '').trim().toLowerCase())
+  );
+  const unrecoverableOpenings = allStockOpening.filter(o =>
+    !validSkuIds.has(o.skuId) && !nameToSku.has((o.skuName || '').trim().toLowerCase())
+  );
+
+  const totalRecoverable = orphanedDels.length + orphanedIssues.length + orphanedOpenings.length;
+  const totalUnrecoverable = unrecoverableDels.length + unrecoverableIssues.length + unrecoverableOpenings.length;
+
+  if (totalRecoverable === 0 && totalUnrecoverable === 0) {
+    alert('✅ No orphaned records found. All deliveries, issues, and stock entries point to valid SKUs.');
+    return;
+  }
+
+  // Build a preview of what will be repaired
+  const preview = [];
+  orphanedDels.slice(0, 5).forEach(d => {
+    const target = nameToSku.get((d.skuName || '').trim().toLowerCase());
+    preview.push(`  • Delivery ${d.deliveryDate}: "${d.skuName}" (${d.qty}) → "${target.name}"`);
+  });
+  orphanedIssues.slice(0, 5).forEach(i => {
+    const target = nameToSku.get((i.skuName || '').trim().toLowerCase());
+    preview.push(`  • Issue ${i.date}: "${i.skuName}" (${i.qty}) → "${target.name}"`);
+  });
+  orphanedOpenings.slice(0, 3).forEach(o => {
+    const target = nameToSku.get((o.skuName || '').trim().toLowerCase());
+    preview.push(`  • Opening ${o.date}: "${o.skuName}" (${o.qty}) → "${target.name}"`);
+  });
+  const more = totalRecoverable > preview.length ? `\n  ... and ${totalRecoverable - preview.length} more` : '';
+
+  let msg = `🔧 Orphan Scan Results\n\n`;
+  if (totalRecoverable > 0) {
+    msg += `Recoverable (can be reassigned by name match):\n` +
+           `  • ${orphanedDels.length} delivery(s)\n` +
+           `  • ${orphanedIssues.length} issue(s)\n` +
+           `  • ${orphanedOpenings.length} opening(s)\n\n` +
+           `Preview:\n${preview.join('\n')}${more}\n\n`;
+  }
+  if (totalUnrecoverable > 0) {
+    msg += `⚠ Unrecoverable (orphaned + name doesn't match any existing SKU): ${totalUnrecoverable}\n` +
+           `These will be left as-is. Create a SKU with the matching name first, then re-run repair.\n\n`;
+  }
+  if (totalRecoverable === 0) {
+    alert(msg + 'Nothing to repair automatically.');
+    return;
+  }
+  msg += `Proceed with reassigning ${totalRecoverable} record(s)?`;
+  if (!confirm(msg)) return;
+
+  try {
+    const batch = db.batch();
+    orphanedDels.forEach(d => {
+      const target = nameToSku.get((d.skuName || '').trim().toLowerCase());
+      batch.update(db.collection('deliveries').doc(d.id), {
+        skuId: target.id, skuName: target.name, skuUnit: target.unit || 'kg'
+      });
+    });
+    orphanedIssues.forEach(i => {
+      const target = nameToSku.get((i.skuName || '').trim().toLowerCase());
+      batch.update(db.collection('stock_issues').doc(i.id), {
+        skuId: target.id, skuName: target.name, skuUnit: target.unit || 'kg'
+      });
+    });
+    orphanedOpenings.forEach(o => {
+      const target = nameToSku.get((o.skuName || '').trim().toLowerCase());
+      batch.update(db.collection('stock_opening').doc(o.id), {
+        skuId: target.id, skuName: target.name, skuUnit: target.unit || 'kg'
+      });
+    });
+    await batch.commit();
+    await loadAll();
+    alert(`✅ Repair complete!\n\nReassigned ${totalRecoverable} record(s) to their matching SKUs.`);
   } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
