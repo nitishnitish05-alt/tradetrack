@@ -923,6 +923,7 @@ const db = firebase.firestore();
 let CU = null;
 let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
 let allStockOpening = [], allStockIssues = [];
+let allSubCategories = [], allDepartments = [];
 let dealsFilter = 'all';
 let dbSort = 'date', dealsSort = 'date'; // sort state
 let dealsSkuSearch = '', dealsSupSearch = ''; // search state
@@ -1159,14 +1160,16 @@ async function initApp() {
 
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap] = await Promise.all([
+    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap] = await Promise.all([
       db.collection('suppliers').orderBy('name').get(),
       db.collection('skus').orderBy('name').get(),
       db.collection('deals').orderBy('createdAt', 'desc').get(),
       db.collection('deliveries').orderBy('createdAt', 'desc').get(),
       db.collection('users').orderBy('username').get(),
       db.collection('stock_opening').orderBy('date', 'desc').get(),
-      db.collection('stock_issues').orderBy('date', 'desc').get()
+      db.collection('stock_issues').orderBy('date', 'desc').get(),
+      db.collection('sub_categories').orderBy('name').get(),
+      db.collection('departments').orderBy('name').get()
     ]);
     allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1175,6 +1178,9 @@ async function loadAll() {
     allUsers        = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allStockOpening = soSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allStockIssues  = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allSubCategories = scSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allDepartments   = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    await seedDepartmentsIfEmpty();
     // Re-render current active section with fresh data
     if (currentSectionId) switchSection(currentSectionId);
     else switchSection('dashboard');
@@ -1190,6 +1196,30 @@ function fmtD(d) { if (!d) return '—'; try { return new Date(d + 'T00:00:00').
 function today() { return new Date().toISOString().slice(0, 10); }
 function getSup(id) { return allSuppliers.find(s => s.id === id) || { name: '—' }; }
 function getSku(id) { return allSkus.find(s => s.id === id) || { name: '—', unit: 'kg', category: '—' }; }
+// ⚠ Same trap as getSku: getSubCat/getDept ALWAYS return truthy — NEVER use for existence checks.
+// For existence use: allSubCategories.some(s => s.id === id) / allDepartments.some(d => d.id === id)
+function getSubCat(id) { return allSubCategories.find(s => s.id === id) || { name: '—', category: '—' }; }
+function getDept(id) { return allDepartments.find(d => d.id === id) || { name: '—', active: false }; }
+
+// Seed the 5 initial departments exactly once (idempotent — only runs when collection is empty)
+const SEED_DEPARTMENTS = ['Namkeen Production', 'Snacks Production', 'Namkeen Packing', 'Snacks Packing', 'Shared / Common'];
+async function seedDepartmentsIfEmpty() {
+  if (allDepartments.length > 0) return; // already seeded (or user-created) — never touch again
+  try {
+    const batch = db.batch();
+    SEED_DEPARTMENTS.forEach(name => {
+      const ref = db.collection('departments').doc();
+      batch.set(ref, {
+        name, active: true,
+        createdBy: CU ? CU.username : 'system',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    });
+    await batch.commit();
+    const dpSnap = await db.collection('departments').orderBy('name').get();
+    allDepartments = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { console.warn('Department seeding failed (will retry on next load):', e); }
+}
 function getDels(dealId) { return allDeliveries.filter(d => d.dealId === dealId); }
 function getDelivered(dealId) { return getDels(dealId).reduce((s, d) => s + (d.qty || 0), 0); }
 
@@ -2329,7 +2359,7 @@ async function repairOrphans() {
 // ══════════════════════════════════════════════
 // BACKUP & RESTORE
 // ══════════════════════════════════════════════
-const BACKUP_COLLECTIONS = ['users','suppliers','skus','deals','deliveries','stock_opening','stock_issues'];
+const BACKUP_COLLECTIONS = ['users','suppliers','skus','deals','deliveries','stock_opening','stock_issues','sub_categories','departments'];
 
 // Firestore Timestamps don't survive JSON. Convert to {__ts: iso} markers on export,
 // and back to firebase Timestamps on restore.
