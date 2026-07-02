@@ -642,6 +642,21 @@
             <thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead>
             <tbody id="users-tbody"></tbody>
           </table></div></div>
+
+          <!-- BACKUP & RESTORE -->
+          <div class="card" style="margin-top:20px;padding:20px;">
+            <div style="font-size:15px;font-weight:800;color:#0f2044;margin-bottom:4px;">💾 Backup &amp; Restore</div>
+            <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Download a full snapshot of all data (deals, deliveries, stock, SKUs, suppliers, users). Keep backups before any major update.</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+              <button class="btn btn-blue" onclick="downloadBackup()">⬇ Download Backup</button>
+              <label class="btn btn-outline" style="cursor:pointer;margin:0;">
+                ⬆ Restore from Backup
+                <input type="file" id="restore-file" accept=".json" style="display:none;" onchange="restoreBackup(this)" />
+              </label>
+              <span id="backup-status" style="font-size:12px;color:#64748b;"></span>
+            </div>
+            <div style="font-size:11px;color:#dc2626;margin-top:10px;">⚠ Restore REPLACES all current data with the backup file's contents. Use with extreme caution.</div>
+          </div>
         </div>
       </div>
 
@@ -2309,6 +2324,140 @@ async function repairOrphans() {
     await loadAll();
     alert(`✅ Repair complete!\n\nReassigned ${totalRecoverable} record(s) to their matching SKUs.`);
   } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// ══════════════════════════════════════════════
+// BACKUP & RESTORE
+// ══════════════════════════════════════════════
+const BACKUP_COLLECTIONS = ['users','suppliers','skus','deals','deliveries','stock_opening','stock_issues'];
+
+// Firestore Timestamps don't survive JSON. Convert to {__ts: iso} markers on export,
+// and back to firebase Timestamps on restore.
+function serializeValue(v) {
+  if (v && typeof v === 'object') {
+    if (typeof v.toDate === 'function') return { __ts: v.toDate().toISOString() };
+    if (Array.isArray(v)) return v.map(serializeValue);
+    const out = {};
+    for (const k in v) out[k] = serializeValue(v[k]);
+    return out;
+  }
+  return v;
+}
+function deserializeValue(v) {
+  if (v && typeof v === 'object') {
+    if (v.__ts && Object.keys(v).length === 1) {
+      return firebase.firestore.Timestamp.fromDate(new Date(v.__ts));
+    }
+    if (Array.isArray(v)) return v.map(deserializeValue);
+    const out = {};
+    for (const k in v) out[k] = deserializeValue(v[k]);
+    return out;
+  }
+  return v;
+}
+
+async function downloadBackup() {
+  const status = document.getElementById('backup-status');
+  const setStatus = (t) => { if (status) status.textContent = t; };
+  try {
+    setStatus('Fetching data…');
+    const backup = {
+      meta: {
+        app: 'TradeTrack',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        createdBy: CU ? CU.username : 'unknown'
+      },
+      collections: {}
+    };
+    let totalDocs = 0;
+    for (const colName of BACKUP_COLLECTIONS) {
+      setStatus(`Fetching ${colName}…`);
+      const snap = await db.collection(colName).get();
+      backup.collections[colName] = snap.docs.map(doc => ({
+        id: doc.id,
+        data: serializeValue(doc.data())
+      }));
+      totalDocs += snap.docs.length;
+    }
+    setStatus('Building file…');
+    const blob = new Blob([JSON.stringify(backup, null, 1)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,16).replace(/[T:]/g,'-');
+    a.href = url;
+    a.download = `tradetrack-backup-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatus(`✅ Backup downloaded — ${totalDocs} records across ${BACKUP_COLLECTIONS.length} collections.`);
+  } catch(e) {
+    setStatus('');
+    alert('Backup failed: ' + (e.message || e));
+  }
+}
+
+async function restoreBackup(input) {
+  const file = input.files && input.files[0];
+  input.value = ''; // reset so same file can be re-picked
+  if (!file) return;
+  const status = document.getElementById('backup-status');
+  const setStatus = (t) => { if (status) status.textContent = t; };
+
+  let backup;
+  try {
+    const text = await file.text();
+    backup = JSON.parse(text);
+  } catch(e) { alert('Could not read file — is it a valid TradeTrack backup JSON?'); return; }
+
+  // Validate structure
+  if (!backup || !backup.meta || backup.meta.app !== 'TradeTrack' || !backup.collections) {
+    alert('This file is not a valid TradeTrack backup.');
+    return;
+  }
+
+  // Build summary
+  const counts = BACKUP_COLLECTIONS.map(c => `  • ${c}: ${(backup.collections[c]||[]).length} records`).join('\n');
+  const totalDocs = BACKUP_COLLECTIONS.reduce((s,c) => s + (backup.collections[c]||[]).length, 0);
+
+  if (!confirm(`⚠ RESTORE FROM BACKUP ⚠\n\nBackup created: ${backup.meta.createdAt}\nBy: ${backup.meta.createdBy}\n\nContents:\n${counts}\n\nThis will DELETE ALL CURRENT DATA and replace it with this backup.\nCurrent data will be UNRECOVERABLE unless you have another backup.\n\nContinue?`)) return;
+
+  const typed = prompt('Final safety check.\nType RESTORE (in capital letters) to proceed:');
+  if (typed !== 'RESTORE') { alert('Restore cancelled — confirmation text did not match.'); return; }
+
+  try {
+    // Phase 1: delete all existing docs, collection by collection, chunked
+    for (const colName of BACKUP_COLLECTIONS) {
+      setStatus(`Clearing ${colName}…`);
+      const snap = await db.collection(colName).get();
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = db.batch();
+        docs.slice(i, i+400).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+    // Phase 2: write backup docs with their original IDs, chunked
+    for (const colName of BACKUP_COLLECTIONS) {
+      const records = backup.collections[colName] || [];
+      setStatus(`Restoring ${colName} (${records.length})…`);
+      for (let i = 0; i < records.length; i += 400) {
+        const batch = db.batch();
+        records.slice(i, i+400).forEach(r => {
+          batch.set(db.collection(colName).doc(r.id), deserializeValue(r.data));
+        });
+        await batch.commit();
+      }
+    }
+    setStatus('Reloading…');
+    await loadAll();
+    setStatus(`✅ Restore complete — ${totalDocs} records restored.`);
+    alert(`✅ Restore complete!\n\n${totalDocs} records restored from backup dated ${backup.meta.createdAt}.`);
+  } catch(e) {
+    setStatus('');
+    alert('Restore error: ' + fmtFirebaseError(e) + '\n\n⚠ Data may be in a partial state. Do NOT make changes — restore again from your backup file.');
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -4078,9 +4227,16 @@ function printRptRateVariance() {
 let conSort = 'sku'; // 'sku' | 'urgent' | 'days_asc' | 'days_desc' | 'category'
 let conFromDate = ''; // persists across section switches
 let conToDate = '';   // persists across section switches
+let conCategory = 'all'; // persists across section switches
 function setConSort(s, btn) {
   conSort = s;
   document.querySelectorAll('#con-sort-bar .ftab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderRptConsumptionTable();
+}
+function setConCategory(c, btn) {
+  conCategory = c;
+  document.querySelectorAll('#con-cat-bar .ftab').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
   renderRptConsumptionTable();
 }
@@ -4097,6 +4253,13 @@ function renderRptConsumption(el) {
       <div><div class="rpt-filter-label">To</div><input type="date" id="rpt-con-to" value="${conToDate}" onchange="conToDate=this.value" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
       <button class="btn btn-blue btn-sm" onclick="renderRptConsumptionTable()">Apply</button>
       <button class="btn btn-outline btn-sm" onclick="printRptConsumption()">🖨 Print</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;" id="con-cat-bar">
+      <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">Category:</span>
+      <button class="ftab ${conCategory==='all'?'active':''}" onclick="setConCategory('all',this)">All</button>
+      ${Array.from(new Set(allSkus.map(s => s.category).filter(Boolean))).sort().map(c =>
+        `<button class="ftab ${c===conCategory?'active':''}" onclick="setConCategory('${c.replace(/'/g, "\\'")}',this)">${c}</button>`
+      ).join('')}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;" id="con-sort-bar">
       <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">Sort:</span>
@@ -4127,6 +4290,10 @@ function renderRptConsumptionTable() {
     const daysLeft = avgPerDay>0 ? Math.floor(closing/avgPerDay) : Infinity;
     return { sku, totalIssued, avgPerDay, closing, daysLeft };
   });
+  // Apply category filter first
+  if (typeof conCategory !== 'undefined' && conCategory !== 'all') {
+    data = data.filter(d => (d.sku.category || '') === conCategory);
+  }
   // Apply sort
   const sortMode = typeof conSort !== 'undefined' ? conSort : 'sku';
   if (sortMode === 'urgent') {
