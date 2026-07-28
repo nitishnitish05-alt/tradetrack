@@ -360,6 +360,44 @@
     .snav-item,.bnav-item,.stat-card,.btn{-webkit-tap-highlight-color:rgba(21,101,192,.12);}
   }
 
+
+  /* ═══════════════════════════════════════════════════════
+     BULK DELIVERY — scrollable deal list (bug fix)
+     Suppliers with long deal histories pushed the "Record All
+     Deliveries" button below the fold, sometimes unreachable even
+     zoomed out. The deal list now scrolls inside a capped area and
+     the column header stays pinned, so the action button is always
+     on screen regardless of how many deals a supplier has.
+     ═══════════════════════════════════════════════════════ */
+  #bd-rows{
+    max-height:min(50vh,480px);
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior:contain;
+    border:1px solid #e8edf3;
+    border-radius:12px;
+    padding:8px 8px 2px;
+    background:#fdfdfe;
+  }
+  /* Keep the SKU / Remaining / Rate header visible while scrolling */
+  #bd-rows > .bd-row:first-child{
+    position:sticky;
+    top:-8px;
+    z-index:6;
+    margin-top:-8px;
+    padding-top:14px;
+  }
+  /* Action button pinned so it can never scroll out of reach */
+  #bd-rows-wrap > .btn-lg{
+    position:sticky;
+    bottom:0;
+    z-index:7;
+    box-shadow:0 -6px 16px rgba(255,255,255,.9);
+  }
+  @media (max-width:768px){
+    #bd-rows{max-height:min(46vh,420px);}
+  }
+
   </style>
 </head>
 <body>
