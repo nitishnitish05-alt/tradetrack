@@ -295,6 +295,71 @@
 
     /* ── PRINT ── */
     @page{margin:12mm;size:A4;}
+
+  /* ═══════════════════════════════════════════════════════
+     TABLET OPTIMISATION  (added — CSS only, no logic changed)
+     Galaxy Tab S6 Lite renders at 600 CSS px portrait / 1000 CSS px
+     landscape (2000x1200 @ DPR 2). Portrait therefore fell into the
+     phone layout and landscape into the desktop layout, neither tuned
+     for finger input. These rules add a proper tablet tier.
+     Phones (<540px) are untouched.
+     ═══════════════════════════════════════════════════════ */
+
+  /* ---- TABLET PORTRAIT: 540–768px (S6 Lite portrait = 600px) ---- */
+  @media (min-width:540px) and (max-width:768px){
+    .content-inner{padding:20px 20px 92px;}
+    .stats-grid{grid-template-columns:repeat(3,1fr);gap:14px;}
+    .stat-card{padding:18px 18px;}
+    .stat-value{font-size:26px;}
+    .stat-label{font-size:12px;}
+    .card{padding:20px 18px;}
+    /* Finger-sized controls */
+    .btn{padding:12px 20px;font-size:15px;min-height:46px;border-radius:11px;}
+    .btn-sm{padding:9px 15px;font-size:13px;min-height:38px;}
+    input{padding:13px 44px 13px 15px;font-size:16px;}
+    select{font-size:15px;padding:12px 12px;min-height:46px;}
+    /* Readable, tappable tables */
+    table{font-size:15px;min-width:0;}
+    th{padding:13px 14px;font-size:12px;}
+    td{padding:14px 14px;}
+    /* Bottom nav — taller, easier to hit */
+    #bottom-nav{height:68px;}
+    .bnav-icon{font-size:20px;}
+    #fab-container{bottom:82px;right:22px;}
+    /* Modal: sheet, but not edge-to-edge on a 10" screen */
+    .modal{padding:26px 24px 32px;max-height:88vh;}
+  }
+
+  /* ---- TABLET LANDSCAPE: 769–1180px (S6 Lite landscape = 1000px) ---- */
+  @media (min-width:769px) and (max-width:1180px){
+    /* Reclaim width from the sidebar */
+    .sidebar{width:186px;}
+    .snav-item{padding:13px 14px;font-size:14px;gap:10px;}
+    .content-inner{padding:20px 20px;}
+    .stats-grid{grid-template-columns:repeat(4,1fr);gap:14px;}
+    .stat-card{padding:16px 16px;}
+    .stat-value{font-size:25px;}
+    .card{padding:20px 18px;}
+    /* Finger-sized controls */
+    .btn{padding:11px 18px;font-size:14px;min-height:44px;border-radius:10px;}
+    .btn-sm{padding:8px 14px;font-size:13px;min-height:36px;}
+    input{padding:12px 44px 12px 14px;font-size:15px;}
+    select{font-size:14px;padding:11px 12px;min-height:44px;}
+    /* Readable, tappable tables */
+    table{font-size:14px;}
+    th{padding:12px 13px;font-size:11px;}
+    td{padding:13px 13px;}
+    .topbar{height:56px;}
+    .modal{max-width:600px;padding:26px 26px;}
+    .modal.wide{max-width:900px;}
+  }
+
+  /* ---- Touch niceties for any touch device ---- */
+  @media (pointer:coarse){
+    .tbl-wrap{scrollbar-width:thin;}
+    .snav-item,.bnav-item,.stat-card,.btn{-webkit-tap-highlight-color:rgba(21,101,192,.12);}
+  }
+
   </style>
 </head>
 <body>
