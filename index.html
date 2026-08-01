@@ -734,6 +734,16 @@
         </div>
       </div>
 
+      <!-- OPERATOR REVIEW -->
+      <div class="panel" id="panel-opr-review">
+        <div class="content-inner">
+          <div class="ph">
+            <div><div class="ph-title">🔍 Operator Review</div><div class="ph-sub">Approve or reject entries made by operator accounts</div></div>
+          </div>
+          <div id="opr-review-content"></div>
+        </div>
+      </div>
+
       <!-- USERS -->
       <div class="panel" id="panel-users">
         <div class="content-inner">
@@ -1046,6 +1056,19 @@ let CU = null;
 let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
 let allStockOpening = [], allStockIssues = [];
 let allSubCategories = [], allDepartments = [];
+// ═══ OPERATOR APPROVAL WORKFLOW ═══
+// Operator-created records carry approval:'pending'. loadAll() splits them out so
+// EVERY existing screen, report, stock calc and deal balance automatically sees
+// approved data only — no other code needed changing. Records with no approval
+// field (all pre-existing data) count as approved.
+let pendingDeals = [], pendingDeliveries = [], pendingIssues = [];
+function isOpr(){ return CU && CU.role !== 'admin'; }
+function isPending(r){ return r && r.approval === 'pending'; }
+// Lookups that must also see pending records (edit modals, review tab)
+function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=>d.id===id); }
+function anyDelivery(id){ return allDeliveries.find(d=>d.id===id) || pendingDeliveries.find(d=>d.id===id); }
+function anyIssue(id){ return allStockIssues.find(d=>d.id===id) || pendingIssues.find(d=>d.id===id); }
+function pendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length; }
 let dealsFilter = 'all';
 let dbSort = 'date', dealsSort = 'date'; // sort state
 let dealsSkuSearch = '', dealsSupSearch = ''; // search state
@@ -1124,10 +1147,12 @@ const ADMIN_SECTIONS = [
       { id: 'set-opening',      label: 'Set Opening Stock', icon: '⚙',  panel: 'stock', stockSub: 'set-opening' },
     ]
   },
+  { id: 'opr-review',   icon: '🔍', label: 'Operator Review', panel: 'opr-review' },
   { id: 'reports-main', icon: '🖨', label: 'Reports', panel: 'reports-main' },
   { id: 'users',        icon: '👥', label: 'Users',   panel: 'users' },
 ];
 const OPR_SECTIONS = [
+  { id: 'deals',   icon: '📝', label: 'Deals',         panel: 'deals' },
   { id: 'journal', icon: '📋', label: 'Stock Journal', panel: 'add-delivery',
     subs: [
       { id: 'add-delivery',     label: 'Add Delivery',       icon: '🚚', panel: 'add-delivery', mode: 'single' },
@@ -1153,6 +1178,13 @@ let sidebarCollapsed = false;
 
 function buildSidebar() {
   const sections = CU.role === 'admin' ? ADMIN_SECTIONS : OPR_SECTIONS;
+  // Show a live count of items awaiting review next to the Operator Review tab
+  try{
+    var _pc = (CU.role==='admin') ? pendingCount() : 0;
+    sections.forEach(function(sc){
+      if(sc.id==='opr-review') sc.label = _pc ? ('Operator Review (' + _pc + ')') : 'Operator Review';
+    });
+  }catch(e){}
   const nav = document.getElementById('sidebar-nav');
   const bnav = document.getElementById('bottom-nav');
   nav.innerHTML = '';
@@ -1239,7 +1271,8 @@ function showPanel(panelId) {
 }
 
 function triggerPanelRender(panelId, mode, stockSub) {
-  if (panelId === 'dashboard') renderDashboard();
+  if (panelId === 'opr-review') renderOprReview();
+  else if (panelId === 'dashboard') renderDashboard();
   else if (panelId === 'deals') renderDeals();
   else if (panelId === 'skus') renderSkus();
   else if (panelId === 'suppliers') renderSuppliers();
@@ -1295,11 +1328,30 @@ async function loadAll() {
     ]);
     allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allDeals        = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allDeliveries   = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rawDeals      = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rawDeliveries = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Admin: live arrays exclude pending. Operator: sees own pending as working data
+    // (they must be able to deliver against a deal they just created).
+    if (isOpr()) {
+      allDeals      = rawDeals.filter(d => !isPending(d) || d.createdBy === CU.username);
+      allDeliveries = rawDeliveries.filter(d => !isPending(d) || d.createdBy === CU.username);
+      pendingDeals = []; pendingDeliveries = [];
+    } else {
+      allDeals      = rawDeals.filter(d => !isPending(d));
+      allDeliveries = rawDeliveries.filter(d => !isPending(d));
+      pendingDeals      = rawDeals.filter(isPending);
+      pendingDeliveries = rawDeliveries.filter(isPending);
+    }
     allUsers        = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allStockOpening = soSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allStockIssues  = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rawIssues = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (isOpr()) {
+      allStockIssues = rawIssues.filter(d => !isPending(d) || d.createdBy === CU.username);
+      pendingIssues = [];
+    } else {
+      allStockIssues = rawIssues.filter(d => !isPending(d));
+      pendingIssues  = rawIssues.filter(isPending);
+    }
     allSubCategories = scSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allDepartments   = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     await seedDepartmentsIfEmpty();
@@ -1811,7 +1863,7 @@ async function saveBulkDeal() {
 }
 
 function openDealModal(id) {
-  const deal = id ? allDeals.find(d => d.id === id) : null;
+  const deal = id ? anyDeal(id) : null;
   document.getElementById('deal-eid').value = id || '';
   document.getElementById('deal-modal-title').textContent = id ? 'Edit Deal' : 'New Deal';
   document.getElementById('dm-date').value = deal?.dealDate || today();
@@ -1842,6 +1894,15 @@ async function saveDeal() {
   const notes = document.getElementById('dm-notes').value.trim();
   if (!supplierId || !skuId || !dealDate || !totalQty || !rate) { alert('Please fill all required fields (*).'); return; }
   const data = { supplierId, skuId, dealDate, totalQty, rate, notes, status: 'OPEN', updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  // Operators may only edit their OWN still-pending deals; once approved it is locked.
+  if (isOpr() && id) {
+    const ex = anyDeal(id);
+    if (!ex || !isPending(ex) || ex.createdBy !== CU.username) {
+      alert('This deal has already been approved by admin and can no longer be edited.');
+      return;
+    }
+  }
+  if (isOpr()) { data.approval = 'pending'; }
   try {
     if (id) { await db.collection('deals').doc(id).update(data); }
     else { await db.collection('deals').add({ ...data, createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp() }); }
@@ -1940,7 +2001,7 @@ function viewDeal(id) {
       Total Contract Value: <strong>₹${fmtN(Math.round(totalVal))}</strong>
       ${deal.notes ? '&nbsp;·&nbsp;Notes: <strong>' + deal.notes + '</strong>' : ''}
     </div>
-    ${CU.role==='admin' ? `
+    ${(CU.role==='admin' || (isPending(deal) && deal.createdBy===CU.username)) ? `
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       ${deal.status==='OPEN'||deal.status==='OVERFULFILLED' ? `
         <button class="btn btn-green" onclick="markDealFulfilled('${id}',true)">✓ Mark as Fulfilled</button>` : ''}
@@ -2719,9 +2780,11 @@ async function submitDelivery() {
       skuUnit: sku.unit || 'kg',
       dealRate: deal.rate,
       createdBy: CU.username,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      ...(isOpr() ? { approval: 'pending' } : {})
     });
-    if (newStatus !== deal.status) {
+    // A pending delivery must NOT change the deal's status — that happens on approval.
+    if (!isOpr() && newStatus !== deal.status) {
       batch.update(db.collection('deals').doc(dealId), { status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     }
     await batch.commit();
@@ -2949,9 +3012,11 @@ async function submitBulkDelivery() {
         skuUnit: sku.unit || 'kg',
         dealRate: deal.rate,
         createdBy: CU.username,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        ...(isOpr() ? { approval: 'pending' } : {})
       });
-      if (newStatus !== deal.status) {
+      // Pending deliveries do not move deal status — deferred to approval.
+      if (!isOpr() && newStatus !== deal.status) {
         batch.update(db.collection('deals').doc(dealId), {
           status: newStatus,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -3133,7 +3198,7 @@ async function deleteDelivery(id) {
 }
 
 function openEditDelivery(id) {
-  const d = allDeliveries.find(x => x.id === id);
+  const d = anyDelivery(id);
   if (!d) return;
   document.getElementById('edm-id').value = id;
   document.getElementById('edm-deal-id').value = d.dealId;
@@ -3658,7 +3723,8 @@ async function submitIssue() {
   try {
     await db.collection('stock_issues').add({
       skuId, skuName: sku.name, skuUnit: sku.unit || 'kg', qty, date, notes,
-      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      ...(isOpr() ? { approval: 'pending' } : {})
     });
     alertEl.className = 'alert alert-success';
     alertEl.textContent = `✓ Issue of ${fmtQ(qty)} ${sku.unit} of ${sku.name} recorded!`;
@@ -3678,7 +3744,7 @@ async function submitIssue() {
 
 // Edit Issue
 function openEditIssue(id) {
-  const i = allStockIssues.find(x => x.id === id);
+  const i = anyIssue(id);
   if (!i) return;
   document.getElementById('ei-id').value = id;
   document.getElementById('ei-date').value = i.date;
@@ -4739,7 +4805,8 @@ window.addEventListener('appinstalled', () => {
     'deleteOpening','deleteUser','executeMerge','markDealFulfilled','reopenDeal',
     'repairOrphans','saveBulkDeal','saveDeal','saveEditDelivery','saveEditIssue',
     'saveOpeningStock','saveSku','saveSup','saveUser','submitBulkDelivery',
-    'submitDelivery','submitIssue','restoreBackup'];
+    'submitDelivery','submitIssue','restoreBackup',
+    'approveOne','rejectOne','approveAllPending'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
@@ -4934,6 +5001,165 @@ async function deleteDuplicateRecord(groupIdx, recIdx){
   }catch(e){
     alert(fmtFirebaseError ? fmtFirebaseError(e) : ('Delete failed: ' + e.message));
   }
+}
+
+
+// ═══════════════════════════════════════════════════════
+// OPERATOR REVIEW  — admin approves/rejects operator entries
+// Pending records are invisible to every other screen until approved,
+// so nothing here can affect live stock or deal balances prematurely.
+// ═══════════════════════════════════════════════════════
+var oprReviewFilter = 'all';
+
+function setOprReviewFilter(f){ oprReviewFilter = f; renderOprReview(); }
+
+function renderOprReview(){
+  var el = document.getElementById('opr-review-content');
+  if(!el) return;
+  if(CU.role !== 'admin'){ el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+
+  var items = [];
+  pendingDeals.forEach(function(d){
+    var sup = getSup(d.supplierId), sku = getSku(d.skuId);
+    items.push({ type:'deal', id:d.id, by:d.createdBy||'?', date:d.dealDate,
+      title:'New Deal · ' + sup.name + ' — ' + sku.name,
+      detail: fmtQ(d.totalQty) + ' ' + (sku.unit||'kg') + ' @ ₹' + fmtN(d.rate) +
+              ' = ₹' + fmtN(Math.round((d.totalQty||0)*(d.rate||0))) + (d.notes ? ' · ' + d.notes : ''),
+      edit:"openDealModal('"+d.id+"')" });
+  });
+  pendingDeliveries.forEach(function(v){
+    items.push({ type:'delivery', id:v.id, by:v.createdBy||'?', date:v.deliveryDate,
+      title:'Delivery · ' + (v.supplierName||'?') + ' — ' + (v.skuName||'?'),
+      detail: fmtQ(v.qty) + ' ' + (v.skuUnit||'kg') +
+              (v.actualRate ? ' @ ₹' + fmtN(v.actualRate) : (v.dealRate ? ' @ ₹' + fmtN(v.dealRate) : '')) +
+              (v.notes ? ' · ' + v.notes : '') +
+              (anyDeal(v.dealId) && isPending(anyDeal(v.dealId)) ? ' · ⚠ against a pending deal' : ''),
+      edit:"openEditDelivery('"+v.id+"')" });
+  });
+  pendingIssues.forEach(function(i){
+    items.push({ type:'issue', id:i.id, by:i.createdBy||'?', date:i.date,
+      title:'Issue to Production · ' + (i.skuName||'?'),
+      detail: fmtQ(i.qty) + ' ' + (i.skuUnit||'kg') + (i.notes ? ' · ' + i.notes : ''),
+      edit:"openEditIssue('"+i.id+"')" });
+  });
+
+  var shown = items.filter(function(x){ return oprReviewFilter==='all' || x.type===oprReviewFilter; });
+  shown.sort(function(a,b){ return (a.date||'') < (b.date||'') ? 1 : -1; });
+
+  var tabs = [['all','All ('+items.length+')'],['deal','Deals ('+pendingDeals.length+')'],
+              ['delivery','Deliveries ('+pendingDeliveries.length+')'],['issue','Issues ('+pendingIssues.length+')']];
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">' +
+    tabs.map(function(t){
+      return '<button class="btn btn-sm ' + (oprReviewFilter===t[0]?'btn-blue':'btn-outline') +
+             '" onclick="setOprReviewFilter(\'' + t[0] + '\')">' + t[1] + '</button>';
+    }).join('') + '</div>';
+
+  if(!items.length){
+    el.innerHTML = h + '<div class="alert alert-success" style="display:block;">✓ Nothing pending — all operator entries have been reviewed.</div>';
+    return;
+  }
+
+  h += '<div class="alert alert-warn" style="display:block;margin-bottom:14px;">' +
+       '⚠ <strong>' + items.length + '</strong> entr' + (items.length===1?'y':'ies') +
+       ' awaiting your review. These are NOT counted in stock, deal balances or reports until approved.</div>';
+
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">' +
+       '<button class="btn btn-green" onclick="approveAllPending()">✓ All OK — Approve ' +
+       (oprReviewFilter==='all' ? 'All' : 'These') + ' (' + shown.length + ')</button></div>';
+
+  shown.forEach(function(x){
+    var badge = x.type==='deal' ? '#1565c0' : x.type==='delivery' ? '#2e7d32' : '#b45309';
+    h += '<div style="border:1px solid #e2e8f0;border-left:4px solid ' + badge +
+         ';border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff;">';
+    h += '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">';
+    h += '<div style="flex:1;min-width:220px;">';
+    h += '<div style="font-size:13px;font-weight:800;color:#0f2044;">' + x.title + '</div>';
+    h += '<div style="font-size:12px;color:#475569;margin-top:3px;">' + x.detail + '</div>';
+    h += '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">' + fmtD(x.date) + ' · entered by <strong>' + x.by + '</strong></div>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+    h += '<button class="btn btn-outline btn-sm" onclick="' + x.edit + '">✎ Edit</button>';
+    h += '<button class="btn btn-green btn-sm" onclick="approveOne(\'' + x.type + '\',\'' + x.id + '\')">✓ OK</button>';
+    h += '<button class="btn btn-red btn-sm" onclick="rejectOne(\'' + x.type + '\',\'' + x.id + '\')">✕ Reject</button>';
+    h += '</div></div></div>';
+  });
+  el.innerHTML = h;
+}
+
+function _collFor(type){
+  return type==='deal' ? 'deals' : type==='delivery' ? 'deliveries' : 'stock_issues';
+}
+
+// Approving a delivery may change its deal's status — recalc after approval.
+async function _postApprove(type, rec){
+  if(type==='delivery' && rec && rec.dealId){
+    try{ await recalcDealStatus(rec.dealId); }catch(e){}
+  }
+}
+
+async function approveOne(type, id){
+  var rec = type==='deal' ? anyDeal(id) : type==='delivery' ? anyDelivery(id) : anyIssue(id);
+  if(!rec) return;
+  // A delivery cannot go live while the deal it belongs to is still pending.
+  if(type==='delivery' && rec.dealId){
+    var parent = anyDeal(rec.dealId);
+    if(parent && isPending(parent)){
+      if(!confirm('This delivery is against a deal that is still pending.\n\nApprove the deal as well?')) return;
+      await db.collection('deals').doc(parent.id).update({ approval: 'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+  }
+  try{
+    await db.collection(_collFor(type)).doc(id).update({
+      approval: 'approved', approvedBy: CU.username,
+      approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await _postApprove(type, rec);
+    await loadAll();
+  }catch(e){ alert(fmtFirebaseError(e)); }
+}
+
+async function rejectOne(type, id){
+  var rec = type==='deal' ? anyDeal(id) : type==='delivery' ? anyDelivery(id) : anyIssue(id);
+  if(!rec) return;
+  if(type==='deal'){
+    var childDels = pendingDeliveries.filter(function(d){ return d.dealId === id; });
+    if(childDels.length && !confirm('This deal has ' + childDels.length + ' pending delivery entr' +
+       (childDels.length===1?'y':'ies') + ' against it.\n\nRejecting the deal will also delete them. Continue?')) return;
+  }
+  if(!confirm('Reject and permanently delete this entry?\n\nThis cannot be undone.')) return;
+  try{
+    if(type==='deal'){
+      var kids = pendingDeliveries.filter(function(d){ return d.dealId === id; });
+      for(var k=0;k<kids.length;k++){ await db.collection('deliveries').doc(kids[k].id).delete(); }
+    }
+    await db.collection(_collFor(type)).doc(id).delete();
+    await loadAll();
+  }catch(e){ alert(fmtFirebaseError(e)); }
+}
+
+async function approveAllPending(){
+  var list = [];
+  if(oprReviewFilter==='all' || oprReviewFilter==='deal') pendingDeals.forEach(function(d){ list.push(['deal', d]); });
+  if(oprReviewFilter==='all' || oprReviewFilter==='delivery') pendingDeliveries.forEach(function(d){ list.push(['delivery', d]); });
+  if(oprReviewFilter==='all' || oprReviewFilter==='issue') pendingIssues.forEach(function(d){ list.push(['issue', d]); });
+  if(!list.length) return;
+  if(!confirm('Approve all ' + list.length + ' pending entr' + (list.length===1?'y':'ies') +
+              '?\n\nThey will immediately count towards stock, deal balances and reports.')) return;
+  try{
+    // Deals first so deliveries never go live against a still-pending deal
+    list.sort(function(a,b){ return (a[0]==='deal'?0:1) - (b[0]==='deal'?0:1); });
+    var stamp = { approval:'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    for(var i=0;i<list.length;i++){
+      await db.collection(_collFor(list[i][0])).doc(list[i][1].id).update(stamp);
+    }
+    // Recalculate deal statuses once, for every deal touched by an approved delivery
+    var deals = {};
+    list.forEach(function(x){ if(x[0]==='delivery' && x[1].dealId) deals[x[1].dealId] = 1; });
+    var ids = Object.keys(deals);
+    for(var j=0;j<ids.length;j++){ try{ await recalcDealStatus(ids[j]); }catch(e){} }
+    await loadAll();
+    alert('✓ Approved ' + list.length + ' entr' + (list.length===1?'y':'ies') + '.');
+  }catch(e){ alert(fmtFirebaseError(e)); }
 }
 
 </script>
