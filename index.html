@@ -514,7 +514,7 @@
             <div class="filter-row" id="deals-filter" style="margin-bottom:0;">
               <button class="ftab active" onclick="setFilter('all',this)">All</button>
               <button class="ftab" onclick="setFilter('OPEN',this)">Open</button>
-              <button class="ftab" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
+              <button class="ftab" id="deals-ftab-fulfilled" onclick="setFilter('FULFILLED',this)">Fulfilled</button>
               <button class="ftab" onclick="setFilter('OVERFULFILLED',this)">Over</button>
             </div>
             <div class="filter-row" style="margin-bottom:0;">
@@ -1069,6 +1069,15 @@ function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=
 function anyDelivery(id){ return allDeliveries.find(d=>d.id===id) || pendingDeliveries.find(d=>d.id===id); }
 function anyIssue(id){ return allStockIssues.find(d=>d.id===id) || pendingIssues.find(d=>d.id===id); }
 function pendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length; }
+// An operator may edit/delete ONLY their own still-pending deal. Everything an
+// admin has already approved is locked to them — they may only log entries against it.
+function canOprActOnDeal(deal){ return !!deal && isPending(deal) && deal.createdBy === CU.username; }
+function mayActOnDeal(deal){ return CU.role === 'admin' || canOprActOnDeal(deal); }
+// Operators never see completed (FULFILLED) deals — only live ones they can work against.
+function visibleDealsFor(list){
+  if (CU.role === 'admin') return list;
+  return list.filter(function(d){ return d.status !== 'FULFILLED'; });
+}
 let dealsFilter = 'all';
 let dbSort = 'date', dealsSort = 'date'; // sort state
 let dealsSkuSearch = '', dealsSupSearch = ''; // search state
@@ -1438,10 +1447,11 @@ function dealCardHtml(deal, showAdminActions) {
   const statusClass = deal.status === 'FULFILLED' ? 'fulfilled' : deal.status === 'OVERFULFILLED' ? 'overfulfilled' : '';
   const pfillClass = deal.status === 'FULFILLED' ? 'g' : deal.status === 'OVERFULFILLED' ? 'r' : '';
 
+  const _isAdm = CU.role === 'admin';
   const adminActions = showAdminActions ? `
     ${deal.status==='OPEN' ? `<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>` : ''}
-    ${deal.status==='OPEN'||deal.status==='OVERFULFILLED' ? `<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>` : ''}
-    ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED' ? `<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>` : ''}
+    ${_isAdm && (deal.status==='OPEN'||deal.status==='OVERFULFILLED') ? `<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>` : ''}
+    ${_isAdm && (deal.status==='FULFILLED'||deal.status==='OVERFULFILLED') ? `<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>` : ''}
     <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
   ` : '';
 
@@ -1524,8 +1534,9 @@ function showDealsSearchDrop(type) {
   const otherDrop = document.getElementById(isSkU ? 'deals-sup-drop' : 'deals-sku-drop');
   if (otherDrop) otherDrop.classList.remove('open');
 
-  // Build unique list from current filter's deals
-  let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  // Build unique list from current filter's deals (respecting operator visibility)
+  let deals = visibleDealsFor(allDeals);
+  deals = dealsFilter === 'all' ? deals : deals.filter(d => d.status === dealsFilter);
   let items;
   if (isSkU) {
     const seen = new Set();
@@ -1678,7 +1689,11 @@ function setFilter(f, btn) {
 }
 
 function renderDeals() {
-  let deals = dealsFilter === 'all' ? allDeals : allDeals.filter(d => d.status === dealsFilter);
+  // Operators have no fulfilled deals to look at — hide that filter for them
+  var _ft = document.getElementById('deals-ftab-fulfilled');
+  if (_ft) _ft.style.display = (CU.role === 'admin') ? '' : 'none';
+  let deals = visibleDealsFor(allDeals);
+  deals = dealsFilter === 'all' ? deals : deals.filter(d => d.status === dealsFilter);
   // Apply SKU search filter
   if (dealsSkuSearch) deals = deals.filter(d => getSku(d.skuId).name.toLowerCase().includes(dealsSkuSearch));
   // Apply Supplier search filter
@@ -1710,15 +1725,21 @@ function renderDeals() {
       <td>${badge(deal.status)}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="viewDeal('${deal.id}')">View</button>
-        ${deal.status==='OPEN'?`<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>`:''}
-        ${deal.status==='OPEN'||deal.status==='OVERFULFILLED'?`<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>`:''}
-        ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED'?`<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>`:''}
-        <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
+        ${CU.role==='admin' ? `
+          ${deal.status==='OPEN'?`<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>`:''}
+          ${deal.status==='OPEN'||deal.status==='OVERFULFILLED'?`<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>`:''}
+          ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED'?`<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>`:''}
+          <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
+        ` : canOprActOnDeal(deal) ? `
+          <button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>
+          <button class="btn btn-red btn-sm" onclick="deleteDeal('${deal.id}')">Del</button>
+          <span style="font-size:10px;color:#b45309;font-weight:700;margin-left:4px;">PENDING REVIEW</span>
+        ` : `<span style="font-size:10px;color:#94a3b8;margin-left:4px;">approved &mdash; log delivery only</span>`}
       </td>
     </tr>`;
   }).join('');
   // Mobile cards
-  if (cards) cards.innerHTML = deals.map(d => dealCardHtml(d, CU?.role === 'admin')).join('');
+  if (cards) cards.innerHTML = deals.map(d => dealCardHtml(d, mayActOnDeal(d))).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1912,8 +1933,9 @@ async function saveDeal() {
 }
 
 async function deleteDeal(id) {
-  const deal = allDeals.find(d => d.id === id);
+  const deal = anyDeal(id);
   if (!deal) return;
+  if (!mayActOnDeal(deal)) { alert('This deal has been approved by admin — you can no longer delete it.'); return; }
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const numDels = getDels(id).length;
   if (!confirm(`Delete deal:\n${sup.name} – ${sku.name}\n${fmtQ(deal.totalQty)} ${sku.unit||'kg'} @ ₹${deal.rate}\n\nThis will also delete ${numDels} delivery record(s). Cannot be undone.`)) return;
@@ -1930,8 +1952,9 @@ async function deleteDeal(id) {
 }
 
 async function markDealFulfilled(id, fromModal) {
-  const deal = allDeals.find(d => d.id === id);
+  const deal = anyDeal(id);
   if (!deal) return;
+  if (CU.role !== 'admin') { alert('Only admin can close a deal.'); return; }
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const delivered = getDelivered(id);
   const remaining = (deal.totalQty || 0) - delivered;
@@ -1953,8 +1976,9 @@ async function markDealFulfilled(id, fromModal) {
 }
 
 async function reopenDeal(id, fromModal) {
-  const deal = allDeals.find(d => d.id === id);
+  const deal = anyDeal(id);
   if (!deal) return;
+  if (CU.role !== 'admin') { alert('Only admin can reopen a deal.'); return; }
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   if (!confirm(`Reopen this deal?\n\n${sup.name} — ${sku.name}\nStatus: ${deal.status}\n\nIt will return to OPEN and appear in pending contracts.`)) return;
   const _sc2 = document.querySelector('#panel-deals .content-inner');
