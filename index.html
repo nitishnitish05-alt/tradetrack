@@ -1015,7 +1015,11 @@
     <input type="hidden" id="edm-deal-id" />
     <div class="deal-info-box" id="edm-info"></div>
     <div class="mfg"><label>Delivery Date *</label><input type="date" id="edm-date" /></div>
-    <div class="mfg"><label>Quantity Received *</label><input type="number" id="edm-qty" placeholder="Enter quantity" min="0.01" step="0.01" /></div>
+    <div class="mfg"><label>Quantity Received *</label><input type="number" id="edm-qty" placeholder="Enter quantity" min="0.01" step="0.01" oninput="updateEdmVariance()" /></div>
+    <div class="mfg"><label>Actual Rate (₹) — leave blank if billed at contracted rate</label>
+      <input type="number" id="edm-actual-rate" placeholder="Leave blank if same as contracted rate" min="0" step="0.01" oninput="updateEdmVariance()" />
+      <div id="edm-var-hint" style="font-size:12px;font-weight:700;margin-top:6px;display:none;"></div>
+    </div>
     <div class="mfg"><label>Notes</label><textarea id="edm-notes" rows="2" placeholder="Bill No., Vehicle No., etc."></textarea></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeOverlay('modal-edit-delivery')">Cancel</button>
@@ -1688,6 +1692,12 @@ function setFilter(f, btn) {
   renderDeals();
 }
 
+// Net rupee impact of rate variances across a deal's deliveries (0 = billed as contracted)
+function dealRateImpact(deal) {
+  return getDels(deal.id).reduce((s, d) =>
+    s + ((d.actualRate != null && d.actualRate !== deal.rate) ? (d.actualRate - deal.rate) * (d.qty || 0) : 0), 0);
+}
+
 function renderDeals() {
   // Operators have no fulfilled deals to look at — hide that filter for them
   var _ft = document.getElementById('deals-ftab-fulfilled');
@@ -1713,12 +1723,15 @@ function renderDeals() {
     const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
     const remaining = (deal.totalQty || 0) - delivered;
+    const vImpact = dealRateImpact(deal);
     return `<tr>
       <td>${fmtD(deal.dealDate)}</td>
       <td><strong>${sup.name}</strong></td>
       <td>${sku.name}</td>
       <td><span style="font-size:11px;background:#f1f5f9;padding:2px 9px;border-radius:6px;">${sku.category}</span></td>
-      <td>₹${fmtN(deal.rate)}</td>
+      <td>₹${fmtN(deal.rate)}${vImpact !== 0
+        ? `<div style="font-size:10px;font-weight:700;color:${vImpact>0?'#dc2626':'#16a34a'};">⚠ ${vImpact>0?'+':'−'}₹${fmtN(Math.abs(Math.round(vImpact)))}</div>`
+        : ''}</td>
       <td>${fmtQ(deal.totalQty)} ${sku.unit||'kg'}</td>
       <td>${fmtQ(delivered)}</td>
       <td><strong style="color:${remaining>0?'#dc2626':'#16a34a'}">${fmtQ(remaining)}</strong></td>
@@ -2032,17 +2045,42 @@ function viewDeal(id) {
       ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED' ? `
         <button class="btn btn-outline" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${id}',true)">↺ Reopen Deal</button>` : ''}
     </div>` : ''}
+    ${(() => {
+      // Deal-level rate variance summary — the core purpose of this app
+      const varLines = dels.filter(d => d.actualRate != null && d.actualRate !== deal.rate);
+      if (!varLines.length) return '';
+      const impact = varLines.reduce((s, d) => s + ((d.actualRate - deal.rate) * (d.qty || 0)), 0);
+      const over = impact > 0;
+      return `<div style="background:${over ? '#fef2f2' : '#f0fdf4'};border:1.5px solid ${over ? '#fecaca' : '#bbf7d0'};border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+        <div style="font-size:13px;font-weight:800;color:${over ? '#dc2626' : '#16a34a'};margin-bottom:4px;">
+          ⚠ Rate Variance on ${varLines.length} of ${dels.length} deliveries
+        </div>
+        <div style="font-size:12px;color:#475569;">
+          Contracted ₹${fmtN(deal.rate)}/${sku.unit||'kg'} ·
+          Billed ${[...new Set(varLines.map(d => '₹' + fmtN(d.actualRate)))].join(', ')} ·
+          <strong style="color:${over ? '#dc2626' : '#16a34a'};">Net impact ${over ? '+' : '−'}₹${fmtN(Math.abs(Math.round(impact)))}</strong>
+        </div>
+      </div>`;
+    })()}
     <div class="dl-deliveries">
       <div class="dl-deliveries-title">Delivery Log (${dels.length} entries)</div>
-      ${dels.length ? dels.map(d => `
+      ${dels.length ? dels.map(d => {
+        const effRate = (d.actualRate != null ? d.actualRate : deal.rate);
+        const varies  = d.actualRate != null && d.actualRate !== deal.rate;
+        const lineVal = Math.round(d.qty * effRate);
+        const diff    = varies ? Math.round((d.actualRate - deal.rate) * d.qty) : 0;
+        return `
         <div class="dl-item">
-          <div class="dl-dot"></div>
+          <div class="dl-dot" ${varies ? 'style="background:#dc2626;"' : ''}></div>
           <div>
-            <div class="dl-item-main">${fmtD(d.deliveryDate)} — <span style="color:#16a34a;">+${fmtQ(d.qty)} ${sku.unit||'kg'}</span> <span style="color:#94a3b8;font-weight:400;font-size:12px;">(₹${fmtN(Math.round(d.qty * deal.rate))})</span></div>
+            <div class="dl-item-main">${fmtD(d.deliveryDate)} — <span style="color:#16a34a;">+${fmtQ(d.qty)} ${sku.unit||'kg'}</span>
+              <span style="color:#94a3b8;font-weight:400;font-size:12px;">(₹${fmtN(lineVal)})</span>
+              ${varies ? `<span style="color:#dc2626;font-weight:700;font-size:12px;margin-left:6px;">@ ₹${fmtN(d.actualRate)} ⚠ ${diff > 0 ? '+' : '−'}₹${fmtN(Math.abs(diff))}</span>` : ''}
+            </div>
             <div class="dl-item-sub">${d.notes || 'No notes'} · By ${d.createdBy || '—'}</div>
           </div>
-        </div>
-      `).join('') : '<div style="color:#94a3b8;font-size:13px;padding:10px 0;">No deliveries recorded yet.</div>'}
+        </div>`;
+      }).join('') : '<div style="color:#94a3b8;font-size:13px;padding:10px 0;">No deliveries recorded yet.</div>'}
     </div>
   `;
   openOverlay('modal-detail');
@@ -2767,6 +2805,9 @@ async function submitDelivery() {
   const deliveryDate = document.getElementById('dd-date').value;
   const qty = parseFloat(document.getElementById('dd-qty').value);
   const notes = document.getElementById('dd-notes').value.trim();
+  const actualRateRaw = document.getElementById('dd-actual-rate').value;
+  const actualRate = actualRateRaw === '' ? null : parseFloat(actualRateRaw);
+  if (actualRate !== null && (isNaN(actualRate) || actualRate < 0)) { showAlert('error', 'Actual rate must be a valid number.'); return; }
   if (!dealId) { showAlert('error', 'Please select a deal.'); return; }
   if (!deliveryDate) { showAlert('error', 'Please select a delivery date.'); return; }
   if (!qty || qty <= 0) { showAlert('error', 'Please enter a valid quantity.'); return; }
@@ -2800,9 +2841,11 @@ async function submitDelivery() {
       qty,
       notes,
       supplierName: getSup(deal.supplierId).name,
+      skuId: deal.skuId,
       skuName: sku.name,
       skuUnit: sku.unit || 'kg',
       dealRate: deal.rate,
+      actualRate: actualRate,
       createdBy: CU.username,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       ...(isOpr() ? { approval: 'pending' } : {})
@@ -2812,8 +2855,12 @@ async function submitDelivery() {
       batch.update(db.collection('deals').doc(dealId), { status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     }
     await batch.commit();
-    showAlert('success', `✓ Delivery of ${fmtQ(qty)} ${sku.unit||'kg'} recorded successfully!${newStatus === 'FULFILLED' ? ' Deal is now FULFILLED.' : newStatus === 'OVERFULFILLED' ? ' ⚠ Deal marked OVERFULFILLED.' : ''}`);
+    const varNote = (actualRate !== null && actualRate !== deal.rate)
+      ? ` ⚠ Rate variance recorded: ₹${fmtN(actualRate)} vs contracted ₹${fmtN(deal.rate)} (${actualRate > deal.rate ? '+' : ''}₹${fmtN(Math.round((actualRate - deal.rate) * qty))} impact).`
+      : '';
+    showAlert('success', `✓ Delivery of ${fmtQ(qty)} ${sku.unit||'kg'} recorded successfully!${newStatus === 'FULFILLED' ? ' Deal is now FULFILLED.' : newStatus === 'OVERFULFILLED' ? ' ⚠ Deal marked OVERFULFILLED.' : ''}${varNote}`);
     document.getElementById('dd-qty').value = '';
+    document.getElementById('dd-actual-rate').value = '';
     document.getElementById('dd-notes').value = '';
     document.getElementById('dd-info').style.display = 'none';
     await loadAll();
@@ -2910,8 +2957,9 @@ function onBulkDeliverySupplierSel() {
     <div class="bd-row" style="background:#0f2044;color:white;border-color:#0f2044;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;padding:8px 12px;">
       <div>SKU</div>
       <div>Remaining</div>
-      <div>Rate</div>
+      <div>Contracted Rate</div>
       <div>Qty Received</div>
+      <div>Actual Rate ⚠</div>
       <div>Row Notes</div>
     </div>`;
 
@@ -2939,14 +2987,24 @@ function onBulkDeliverySupplierSel() {
           oninput="this.classList.toggle('has-value', this.value > 0)" />
       </div>
       <div>
+        <input type="number" id="bdr-actual-${deal.id}"
+          placeholder="Same as ₹${fmtN(deal.rate)}"
+          min="0" step="0.01"
+          oninput="markRateVariance(this, ${deal.rate})" />
+      </div>
+      <div>
         <input type="text" id="bdr-notes-${deal.id}" placeholder="Optional" />
       </div>`;
     rowsEl.appendChild(row);
 
     // Enter on qty → notes; Enter on notes → next row qty
-    const qtyInput   = row.querySelector(`#bdr-qty-${deal.id}`);
-    const notesInput = row.querySelector(`#bdr-notes-${deal.id}`);
+    const qtyInput    = row.querySelector(`#bdr-qty-${deal.id}`);
+    const actualInput = row.querySelector(`#bdr-actual-${deal.id}`);
+    const notesInput  = row.querySelector(`#bdr-notes-${deal.id}`);
     qtyInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); actualInput.focus(); }
+    });
+    actualInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); notesInput.focus(); }
     });
     notesInput.addEventListener('keydown', e => {
@@ -2971,6 +3029,16 @@ function onBulkDeliverySupplierSel() {
     const firstQty = rowsEl.querySelector('input[type="number"]');
     if (firstQty) firstQty.focus();
   }, 100);
+}
+
+// Visual cue while typing: red when the entered rate differs from the contracted rate
+function markRateVariance(input, dealRate) {
+  const v = parseFloat(input.value);
+  const differs = !isNaN(v) && v !== dealRate;
+  input.style.borderColor = differs ? '#dc2626' : '';
+  input.style.background  = differs ? '#fef2f2' : '';
+  input.style.color       = differs ? '#dc2626' : '';
+  input.style.fontWeight  = differs ? '700' : '';
 }
 
 async function submitBulkDelivery() {
@@ -3049,8 +3117,13 @@ async function submitBulkDelivery() {
     });
     await batch.commit();
 
-    alertEl.className = 'alert alert-success';
-    alertEl.textContent = `✓ ${entries.length} delivery record${entries.length > 1 ? 's' : ''} saved successfully!`;
+    const variances = entries.filter(e => {
+      const ar = parseFloat(document.getElementById(`bdr-actual-${e.dealId}`)?.value);
+      return !isNaN(ar) && ar !== e.deal.rate;
+    });
+    alertEl.className = variances.length ? 'alert alert-warn' : 'alert alert-success';
+    alertEl.textContent = `✓ ${entries.length} delivery record${entries.length > 1 ? 's' : ''} saved successfully!` +
+      (variances.length ? ` ⚠ ${variances.length} with rate variance: ${variances.map(e => e.sku.name).join(', ')}.` : '');
     alertEl.style.display = 'block';
     setTimeout(() => { alertEl.style.display = 'none'; }, 5000);
     await loadAll();
@@ -3228,14 +3301,34 @@ function openEditDelivery(id) {
   document.getElementById('edm-deal-id').value = d.dealId;
   document.getElementById('edm-date').value = d.deliveryDate;
   document.getElementById('edm-qty').value = d.qty;
+  document.getElementById('edm-actual-rate').value = (d.actualRate != null ? d.actualRate : '');
   document.getElementById('edm-notes').value = d.notes || '';
-  // Info box
+  // Info box — include the deal this delivery belongs to
+  const parentDeal = anyDeal(d.dealId);
   document.getElementById('edm-info').innerHTML = `
     <div class="dib-row"><span class="dib-label">Supplier</span><span class="dib-val">${d.supplierName || '—'}</span></div>
     <div class="dib-row"><span class="dib-label">SKU</span><span class="dib-val">${d.skuName || '—'}</span></div>
     <div class="dib-row"><span class="dib-label">Contracted Rate</span><span class="dib-val" style="color:#dc2626;">₹${fmtN(d.dealRate)}/${d.skuUnit||'kg'}</span></div>
+    ${parentDeal ? `<div class="dib-row"><span class="dib-label">Against Deal</span><span class="dib-val">${fmtD(parentDeal.dealDate)} · ${fmtQ(parentDeal.totalQty)} ${d.skuUnit||'kg'} @ ₹${fmtN(parentDeal.rate)}</span></div>` : ''}
   `;
+  updateEdmVariance();
   openOverlay('modal-edit-delivery');
+}
+
+// Live hint showing the rupee impact of a rate variance while editing
+function updateEdmVariance() {
+  const hint = document.getElementById('edm-var-hint');
+  const d = anyDelivery(document.getElementById('edm-id').value);
+  if (!hint || !d) return;
+  const ar = parseFloat(document.getElementById('edm-actual-rate').value);
+  const qty = parseFloat(document.getElementById('edm-qty').value) || 0;
+  const dealRate = d.dealRate || 0;
+  if (isNaN(ar) || ar === dealRate) { hint.style.display = 'none'; return; }
+  const diff = ar - dealRate;
+  const impact = Math.round(diff * qty);
+  hint.style.display = 'block';
+  hint.style.color = diff > 0 ? '#dc2626' : '#16a34a';
+  hint.textContent = `⚠ ${diff > 0 ? 'Over' : 'Under'} contracted rate by ₹${fmtN(Math.abs(diff))}/${d.skuUnit||'kg'} — impact ${diff > 0 ? '+' : '−'}₹${fmtN(Math.abs(impact))} on this delivery.`;
 }
 
 async function saveEditDelivery() {
@@ -3244,9 +3337,12 @@ async function saveEditDelivery() {
   const deliveryDate = document.getElementById('edm-date').value;
   const qty = parseFloat(document.getElementById('edm-qty').value);
   const notes = document.getElementById('edm-notes').value.trim();
+  const arRaw = document.getElementById('edm-actual-rate').value;
+  const actualRate = arRaw === '' ? null : parseFloat(arRaw);
+  if (actualRate !== null && (isNaN(actualRate) || actualRate < 0)) { alert('Actual rate must be a valid number.'); return; }
   if (!deliveryDate || !qty || qty <= 0) { alert('Please fill delivery date and quantity.'); return; }
   try {
-    await db.collection('deliveries').doc(id).update({ deliveryDate, qty, notes, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: CU.username });
+    await db.collection('deliveries').doc(id).update({ deliveryDate, qty, notes, actualRate, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: CU.username });
     await recalcDealStatus(dealId);
     closeOverlay('modal-edit-delivery');
     await loadAll();
@@ -4440,23 +4536,37 @@ function renderRptRateVarianceTable() {
   const rows = deals.map(d => {
     const sup = getSup(d.supplierId);
     const dels = allDeliveries.filter(del=>del.dealId===d.id);
-    const actualRates = dels.filter(del=>del.actualRate).map(del=>del.actualRate);
-    const avgActual = actualRates.length ? actualRates.reduce((s,r)=>s+r,0)/actualRates.length : null;
-    const diff = avgActual && avgActual !== d.rate;
+    // Quantity-weighted effective rate: deliveries without an actual rate count at the deal rate
+    let wQty = 0, wVal = 0, varQty = 0, impact = 0;
+    dels.forEach(del => {
+      const q = del.qty || 0;
+      const r = (del.actualRate != null ? del.actualRate : d.rate);
+      wQty += q; wVal += q * r;
+      if (del.actualRate != null && del.actualRate !== d.rate) { varQty += q; impact += (del.actualRate - d.rate) * q; }
+    });
+    const avgActual = wQty > 0 ? (wVal / wQty) : null;
+    const diff = avgActual != null && Math.abs(avgActual - d.rate) > 0.005;
+    const over = diff && avgActual > d.rate;
+    const varColor = !diff ? '#16a34a' : (over ? '#dc2626' : '#16a34a');
     return `<tr>
       <td>${fmtD(d.dealDate)}</td><td>${sup.name}</td>
       <td>${fmtQ(d.totalQty)} ${sku.unit}</td>
       <td style="color:#1565c0;font-weight:700;">₹${fmtN(d.rate)}</td>
-      <td style="color:${diff?'#dc2626':'#16a34a'};font-weight:700;">${avgActual?'₹'+fmtN(avgActual.toFixed(2)):'Same as deal'}</td>
-      <td>${diff?`<span style="color:#dc2626;font-weight:700;">▲ ₹${fmtN((avgActual-d.rate).toFixed(2))}</span>`:'—'}</td>
+      <td style="color:${varColor};font-weight:700;">${avgActual != null ? '₹'+fmtN(avgActual.toFixed(2)) : 'No deliveries'}</td>
+      <td>${diff
+        ? `<span style="color:${varColor};font-weight:700;">${over?'▲':'▼'} ₹${fmtN(Math.abs(avgActual-d.rate).toFixed(2))}</span>`
+        : '—'}</td>
+      <td>${impact !== 0
+        ? `<strong style="color:${impact>0?'#dc2626':'#16a34a'};">${impact>0?'+':'−'}₹${fmtN(Math.abs(Math.round(impact)))}</strong><div style="font-size:10px;color:#94a3b8;">on ${fmtQ(varQty)} ${sku.unit}</div>`
+        : '—'}</td>
       <td>${badge(d.status)}</td>
     </tr>`;
   }).join('');
   if (wrap) wrap.innerHTML = `
     <div style="font-size:14px;font-weight:700;color:#0f2044;margin-bottom:12px;">📈 Rate History — ${sku.name}</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Deal Date</th><th>Supplier</th><th>Total Qty</th><th>Deal Rate</th><th>Avg Actual Rate</th><th>Variance</th><th>Status</th></tr></thead>
-      <tbody>${rows||emptyRow(7,'No deals for this SKU')}</tbody>
+      <thead><tr><th>Deal Date</th><th>Supplier</th><th>Total Qty</th><th>Deal Rate</th><th>Wtd. Actual Rate</th><th>Variance</th><th>₹ Impact</th><th>Status</th></tr></thead>
+      <tbody>${rows||emptyRow(8,'No deals for this SKU')}</tbody>
     </table></div>`;
 }
 function printRptRateVariance() {
@@ -5052,12 +5162,34 @@ function renderOprReview(){
       edit:"openDealModal('"+d.id+"')" });
   });
   pendingDeliveries.forEach(function(v){
+    var pd = anyDeal(v.dealId);
+    var unit = v.skuUnit || 'kg';
+    // Which deal is this against? Essential context before approving.
+    var dealLine;
+    if (pd) {
+      var alreadyDelivered = getDelivered(pd.id);
+      var rem = (pd.totalQty || 0) - alreadyDelivered;
+      dealLine = 'Deal ' + fmtD(pd.dealDate) + ' · ' + fmtQ(pd.totalQty) + ' ' + unit +
+                 ' @ ₹' + fmtN(pd.rate) + ' · ' + fmtQ(rem) + ' ' + unit + ' remaining' +
+                 (isPending(pd) ? ' · ⚠ deal itself still pending' : '');
+    } else {
+      dealLine = '⚠ Deal not found — this delivery has no valid contract linked';
+    }
+    // Rate variance against the contracted rate
+    var contracted = (pd ? pd.rate : v.dealRate);
+    var varLine = '';
+    if (v.actualRate != null && contracted != null && v.actualRate !== contracted) {
+      var diff = (v.actualRate - contracted) * (v.qty || 0);
+      varLine = ' · ⚠ RATE VARIANCE: billed ₹' + fmtN(v.actualRate) + ' vs contracted ₹' + fmtN(contracted) +
+                ' (' + (diff > 0 ? '+' : '−') + '₹' + fmtN(Math.abs(Math.round(diff))) + ')';
+    }
     items.push({ type:'delivery', id:v.id, by:v.createdBy||'?', date:v.deliveryDate,
       title:'Delivery · ' + (v.supplierName||'?') + ' — ' + (v.skuName||'?'),
-      detail: fmtQ(v.qty) + ' ' + (v.skuUnit||'kg') +
-              (v.actualRate ? ' @ ₹' + fmtN(v.actualRate) : (v.dealRate ? ' @ ₹' + fmtN(v.dealRate) : '')) +
-              (v.notes ? ' · ' + v.notes : '') +
-              (anyDeal(v.dealId) && isPending(anyDeal(v.dealId)) ? ' · ⚠ against a pending deal' : ''),
+      detail: fmtQ(v.qty) + ' ' + unit +
+              (v.actualRate != null ? ' @ ₹' + fmtN(v.actualRate) : (v.dealRate != null ? ' @ ₹' + fmtN(v.dealRate) : '')) +
+              varLine +
+              (v.notes ? ' · ' + v.notes : ''),
+      sub: dealLine,
       edit:"openEditDelivery('"+v.id+"')" });
   });
   pendingIssues.forEach(function(i){
@@ -5099,6 +5231,12 @@ function renderOprReview(){
     h += '<div style="flex:1;min-width:220px;">';
     h += '<div style="font-size:13px;font-weight:800;color:#0f2044;">' + x.title + '</div>';
     h += '<div style="font-size:12px;color:#475569;margin-top:3px;">' + x.detail + '</div>';
+    if (x.sub) {
+      var noDeal = x.sub.indexOf('not found') !== -1;
+      h += '<div style="font-size:11px;margin-top:5px;padding:5px 9px;border-radius:6px;background:' +
+           (noDeal ? '#fef2f2' : '#f1f5f9') + ';color:' + (noDeal ? '#dc2626' : '#475569') +
+           ';font-weight:' + (noDeal ? '700' : '600') + ';display:inline-block;">📄 ' + x.sub + '</div>';
+    }
     h += '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">' + fmtD(x.date) + ' · entered by <strong>' + x.by + '</strong></div>';
     h += '</div>';
     h += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
