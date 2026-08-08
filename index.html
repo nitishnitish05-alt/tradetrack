@@ -1066,7 +1066,20 @@ let allSubCategories = [], allDepartments = [];
 // approved data only — no other code needed changing. Records with no approval
 // field (all pre-existing data) count as approved.
 let pendingDeals = [], pendingDeliveries = [], pendingIssues = [];
-function isOpr(){ return CU && CU.role !== 'admin'; }
+// ── ROLES ──
+// Two different questions were previously answered by one function:
+//   "is this person an operator?"  (visibility / permission)
+//   "does this person's entry need approval?"  (not an admin)
+// Identical while only admin+operator existed; they diverge once 'accounts' exists —
+// an accounts user NEEDS approval but must NOT get operator visibility of deals.
+function isAdmin(){ return !!CU && CU.role === 'admin'; }
+function isAccounts(){ return !!CU && CU.role === 'accounts'; }
+// Anything that is neither admin nor accounts is treated as an operator. Deliberately
+// not a strict === 'operator' check, so any legacy or unexpected role value keeps
+// behaving exactly as it does today rather than silently losing access.
+function isOpr(){ return !!CU && CU.role !== 'admin' && CU.role !== 'accounts'; }
+// Approval tagging — applies to operators AND accounts users.
+function needsApproval(){ return !!CU && CU.role !== 'admin'; }
 function isPending(r){ return r && r.approval === 'pending'; }
 // Lookups that must also see pending records (edit modals, review tab)
 function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=>d.id===id); }
@@ -1076,10 +1089,10 @@ function pendingCount(){ return pendingDeals.length + pendingDeliveries.length +
 // An operator may edit/delete ONLY their own still-pending deal. Everything an
 // admin has already approved is locked to them — they may only log entries against it.
 function canOprActOnDeal(deal){ return !!deal && isPending(deal) && deal.createdBy === CU.username; }
-function mayActOnDeal(deal){ return CU.role === 'admin' || canOprActOnDeal(deal); }
+function mayActOnDeal(deal){ return isAdmin() || canOprActOnDeal(deal); }
 // Operators never see completed (FULFILLED) deals — only live ones they can work against.
 function visibleDealsFor(list){
-  if (CU.role === 'admin') return list;
+  if (isAdmin()) return list;
   return list.filter(function(d){ return d.status !== 'FULFILLED'; });
 }
 let dealsFilter = 'all';
@@ -1164,6 +1177,19 @@ const ADMIN_SECTIONS = [
   { id: 'reports-main', icon: '🖨', label: 'Reports', panel: 'reports-main' },
   { id: 'users',        icon: '👥', label: 'Users',   panel: 'users' },
 ];
+// Populated in Phase 3 (Overheads entry screens). Empty until then — and the
+// 'accounts' role is deliberately NOT offered in the user modal yet, so nobody
+// can be created into an empty sidebar.
+const ACCOUNTS_SECTIONS = [];
+
+// Single place that resolves role -> nav sections. Unknown/legacy roles fall back
+// to OPR_SECTIONS, preserving today's behaviour exactly.
+function sectionsForRole() {
+  if (isAdmin()) return ADMIN_SECTIONS;
+  if (isAccounts()) return ACCOUNTS_SECTIONS;
+  return OPR_SECTIONS;
+}
+
 const OPR_SECTIONS = [
   { id: 'deals',   icon: '📝', label: 'Deals',         panel: 'deals' },
   { id: 'journal', icon: '📋', label: 'Stock Journal', panel: 'add-delivery',
@@ -1190,10 +1216,10 @@ let currentSubId = ''; // tracks active sub-tab within a section
 let sidebarCollapsed = false;
 
 function buildSidebar() {
-  const sections = CU.role === 'admin' ? ADMIN_SECTIONS : OPR_SECTIONS;
+  const sections = sectionsForRole();
   // Show a live count of items awaiting review next to the Operator Review tab
   try{
-    var _pc = (CU.role==='admin') ? pendingCount() : 0;
+    var _pc = isAdmin() ? pendingCount() : 0;
     sections.forEach(function(sc){
       if(sc.id==='opr-review') sc.label = _pc ? ('Operator Review (' + _pc + ')') : 'Operator Review';
     });
@@ -1228,7 +1254,7 @@ function buildSidebar() {
 }
 
 function switchSection(sectionId, subId) {
-  const sections = CU.role === 'admin' ? ADMIN_SECTIONS : OPR_SECTIONS;
+  const sections = sectionsForRole();
   const sec = sections.find(s => s.id === sectionId);
   if (!sec) return;
   currentSectionId = sectionId;
@@ -1451,7 +1477,7 @@ function dealCardHtml(deal, showAdminActions) {
   const statusClass = deal.status === 'FULFILLED' ? 'fulfilled' : deal.status === 'OVERFULFILLED' ? 'overfulfilled' : '';
   const pfillClass = deal.status === 'FULFILLED' ? 'g' : deal.status === 'OVERFULFILLED' ? 'r' : '';
 
-  const _isAdm = CU.role === 'admin';
+  const _isAdm = isAdmin();
   const adminActions = showAdminActions ? `
     ${deal.status==='OPEN' ? `<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>` : ''}
     ${_isAdm && (deal.status==='OPEN'||deal.status==='OVERFULFILLED') ? `<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>` : ''}
@@ -1679,7 +1705,7 @@ function renderDashboard() {
     </tr>`;
   }).join('');
   // Mobile cards
-  if (cards) cards.innerHTML = sorted.map(d => dealCardHtml(d, CU?.role === 'admin')).join('');
+  if (cards) cards.innerHTML = sorted.map(d => dealCardHtml(d, isAdmin())).join('');
 }
 
 // ══════════════════════════════════════════════
@@ -1701,7 +1727,7 @@ function dealRateImpact(deal) {
 function renderDeals() {
   // Operators have no fulfilled deals to look at — hide that filter for them
   var _ft = document.getElementById('deals-ftab-fulfilled');
-  if (_ft) _ft.style.display = (CU.role === 'admin') ? '' : 'none';
+  if (_ft) _ft.style.display = isAdmin() ? '' : 'none';
   let deals = visibleDealsFor(allDeals);
   deals = dealsFilter === 'all' ? deals : deals.filter(d => d.status === dealsFilter);
   // Apply SKU search filter
@@ -1738,7 +1764,7 @@ function renderDeals() {
       <td>${badge(deal.status)}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="viewDeal('${deal.id}')">View</button>
-        ${CU.role==='admin' ? `
+        ${isAdmin() ? `
           ${deal.status==='OPEN'?`<button class="btn btn-outline btn-sm" onclick="openDealModal('${deal.id}')">Edit</button>`:''}
           ${deal.status==='OPEN'||deal.status==='OVERFULFILLED'?`<button class="btn btn-green btn-sm" onclick="markDealFulfilled('${deal.id}')">✓ Close</button>`:''}
           ${deal.status==='FULFILLED'||deal.status==='OVERFULFILLED'?`<button class="btn btn-outline btn-sm" style="color:#d97706;border-color:#d97706;" onclick="reopenDeal('${deal.id}')">↺ Reopen</button>`:''}
@@ -1936,7 +1962,7 @@ async function saveDeal() {
       return;
     }
   }
-  if (isOpr()) { data.approval = 'pending'; }
+  if (needsApproval()) { data.approval = 'pending'; }
   try {
     if (id) { await db.collection('deals').doc(id).update(data); }
     else { await db.collection('deals').add({ ...data, createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp() }); }
@@ -1967,7 +1993,7 @@ async function deleteDeal(id) {
 async function markDealFulfilled(id, fromModal) {
   const deal = anyDeal(id);
   if (!deal) return;
-  if (CU.role !== 'admin') { alert('Only admin can close a deal.'); return; }
+  if (!isAdmin()) { alert('Only admin can close a deal.'); return; }
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   const delivered = getDelivered(id);
   const remaining = (deal.totalQty || 0) - delivered;
@@ -1991,7 +2017,7 @@ async function markDealFulfilled(id, fromModal) {
 async function reopenDeal(id, fromModal) {
   const deal = anyDeal(id);
   if (!deal) return;
-  if (CU.role !== 'admin') { alert('Only admin can reopen a deal.'); return; }
+  if (!isAdmin()) { alert('Only admin can reopen a deal.'); return; }
   const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
   if (!confirm(`Reopen this deal?\n\n${sup.name} — ${sku.name}\nStatus: ${deal.status}\n\nIt will return to OPEN and appear in pending contracts.`)) return;
   const _sc2 = document.querySelector('#panel-deals .content-inner');
@@ -2038,7 +2064,7 @@ function viewDeal(id) {
       Total Contract Value: <strong>₹${fmtN(Math.round(totalVal))}</strong>
       ${deal.notes ? '&nbsp;·&nbsp;Notes: <strong>' + deal.notes + '</strong>' : ''}
     </div>
-    ${(CU.role==='admin' || (isPending(deal) && deal.createdBy===CU.username)) ? `
+    ${(isAdmin() || (isPending(deal) && deal.createdBy===CU.username)) ? `
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       ${deal.status==='OPEN'||deal.status==='OVERFULFILLED' ? `
         <button class="btn btn-green" onclick="markDealFulfilled('${id}',true)">✓ Mark as Fulfilled</button>` : ''}
@@ -2848,10 +2874,10 @@ async function submitDelivery() {
       actualRate: actualRate,
       createdBy: CU.username,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      ...(isOpr() ? { approval: 'pending' } : {})
+      ...(needsApproval() ? { approval: 'pending' } : {})
     });
     // A pending delivery must NOT change the deal's status — that happens on approval.
-    if (!isOpr() && newStatus !== deal.status) {
+    if (!needsApproval() && newStatus !== deal.status) {
       batch.update(db.collection('deals').doc(dealId), { status: newStatus, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
     }
     await batch.commit();
@@ -3105,10 +3131,10 @@ async function submitBulkDelivery() {
         dealRate: deal.rate,
         createdBy: CU.username,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        ...(isOpr() ? { approval: 'pending' } : {})
+        ...(needsApproval() ? { approval: 'pending' } : {})
       });
       // Pending deliveries do not move deal status — deferred to approval.
-      if (!isOpr() && newStatus !== deal.status) {
+      if (!needsApproval() && newStatus !== deal.status) {
         batch.update(db.collection('deals').doc(dealId), {
           status: newStatus,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -3170,7 +3196,7 @@ function renderHistory() {
   const toDate    = document.getElementById('hist-to')?.value    || '';
   const skuFilter = (document.getElementById('hist-sku-filter')?.value || '').toLowerCase();
   const thActions = document.getElementById('hist-th-actions');
-  if (thActions) thActions.textContent = CU.role === 'admin' ? 'Actions' : '';
+  if (thActions) thActions.textContent = isAdmin() ? 'Actions' : '';
 
   // Build unified movement list
   let movements = [];
@@ -3240,7 +3266,7 @@ function renderHistory() {
       : (m.type === 'inward' ? '<span style="color:#94a3b8;font-size:11px;">Same</span>' : '—')}</td>
     <td>${m.by || '—'}</td>
     <td style="white-space:nowrap;">
-      ${CU.role === 'admin' ? (m.srcType === 'delivery'
+      ${isAdmin() ? (m.srcType === 'delivery'
         ? `<button class="btn btn-outline btn-sm" onclick="openEditDelivery('${m.id}')">Edit</button>
            <button class="btn btn-red btn-sm" onclick="deleteDelivery('${m.id}')">Del</button>`
         : `<button class="btn btn-outline btn-sm" onclick="openEditIssue('${m.id}')">Edit</button>
@@ -3587,7 +3613,7 @@ function renderCurrentStock(el) {
       <td style="color:#16a34a;font-weight:600;">+${fmtQ(purchased)}</td>
       <td style="color:#dc2626;font-weight:600;">-${fmtQ(issued)}</td>
       <td style="${closingStyle}">${fmtQ(closing)} ${sku.unit}</td>
-      ${CU.role==='admin' ? `<td class="no-print"><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td class="no-print"></td>'}
+      ${isAdmin() ? `<td class="no-print"><button class="btn btn-outline btn-sm" onclick="openOpeningModal('${sku.id}')">Reset</button></td>` : '<td class="no-print"></td>'}
     </tr>`;
   }).join('');
 
@@ -3844,7 +3870,7 @@ async function submitIssue() {
     await db.collection('stock_issues').add({
       skuId, skuName: sku.name, skuUnit: sku.unit || 'kg', qty, date, notes,
       createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      ...(isOpr() ? { approval: 'pending' } : {})
+      ...(needsApproval() ? { approval: 'pending' } : {})
     });
     alertEl.className = 'alert alert-success';
     alertEl.textContent = `✓ Issue of ${fmtQ(qty)} ${sku.unit} of ${sku.name} recorded!`;
@@ -3908,7 +3934,7 @@ function renderOprActivity() {
   // Inwards
   if (oprActFilter !== 'outward') {
     allDeliveries
-      .filter(d => d.deliveryDate === t && (CU.role === 'admin' || d.createdBy === CU.username))
+      .filter(d => d.deliveryDate === t && (isAdmin() || d.createdBy === CU.username))
       .forEach(d => movements.push({
         date: d.deliveryDate, type: 'inward',
         label: d.supplierName || '—',
@@ -3919,7 +3945,7 @@ function renderOprActivity() {
   // Outwards
   if (oprActFilter !== 'inward') {
     allStockIssues
-      .filter(i => i.date === t && (CU.role === 'admin' || i.createdBy === CU.username))
+      .filter(i => i.date === t && (isAdmin() || i.createdBy === CU.username))
       .forEach(i => movements.push({
         date: i.date, type: 'outward',
         label: i.notes || '—',
@@ -4171,8 +4197,8 @@ function initKeyboard() {
         case 'b': e.preventDefault(); openBulkDealModal(); break;
         case 'd': e.preventDefault(); switchTab('add-delivery', true); break;
         case 'i': e.preventDefault(); switchTab('issue-production', true); break;
-        case 's': e.preventDefault(); if(CU.role==='admin') switchTab('stock', true); break;
-        case 'u': e.preventDefault(); if(CU.role==='admin') switchTab('users', true); break;
+        case 's': e.preventDefault(); if(isAdmin()) switchTab('stock', true); break;
+        case 'u': e.preventDefault(); if(isAdmin()) switchTab('users', true); break;
       }
     }
   });
@@ -5150,7 +5176,7 @@ function setOprReviewFilter(f){ oprReviewFilter = f; renderOprReview(); }
 function renderOprReview(){
   var el = document.getElementById('opr-review-content');
   if(!el) return;
-  if(CU.role !== 'admin'){ el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+  if(!isAdmin()){ el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
 
   var items = [];
   pendingDeals.forEach(function(d){
