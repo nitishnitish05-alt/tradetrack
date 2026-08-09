@@ -745,6 +745,38 @@
       </div>
 
       <!-- USERS -->
+      <!-- OVERHEADS: DAILY ENTRY -->
+      <div class="panel" id="panel-oh-daily">
+        <div class="content-inner">
+          <div class="ph"><div><div class="ph-title">🧾 Daily Overhead Entry</div><div class="ph-sub">One-off costs incurred on a single day</div></div></div>
+          <div class="card" style="max-width:640px;padding:20px;" id="oh-daily-form"></div>
+        </div>
+      </div>
+
+      <!-- OVERHEADS: PERIOD ENTRY -->
+      <div class="panel" id="panel-oh-period">
+        <div class="content-inner">
+          <div class="ph"><div><div class="ph-title">📆 Period Overhead Entry</div><div class="ph-sub">Costs covering a date range — spread evenly across it</div></div></div>
+          <div class="card" style="max-width:640px;padding:20px;" id="oh-period-form"></div>
+        </div>
+      </div>
+
+      <!-- OVERHEADS: DAILY WAGES -->
+      <div class="panel" id="panel-oh-wages">
+        <div class="content-inner">
+          <div class="ph"><div><div class="ph-title">👷 Daily Wages</div><div class="ph-sub">One day's payments across worker categories</div></div></div>
+          <div id="oh-wages-form"></div>
+        </div>
+      </div>
+
+      <!-- OVERHEADS: LOG -->
+      <div class="panel" id="panel-oh-log">
+        <div class="content-inner">
+          <div class="ph"><div><div class="ph-title">📚 Overhead Log</div><div class="ph-sub">All recorded overheads with totals</div></div></div>
+          <div id="oh-log-content"></div>
+        </div>
+      </div>
+
       <!-- OVERHEAD CATEGORIES -->
       <div class="panel" id="panel-ohcats">
         <div class="content-inner">
@@ -1071,6 +1103,7 @@ let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers
 let allStockOpening = [], allStockIssues = [];
 let allSubCategories = [], allDepartments = [];
 let allOverheadCategories = [];
+let allOverheads = [], pendingOverheads = [];
 // ═══ OPERATOR APPROVAL WORKFLOW ═══
 // Operator-created records carry approval:'pending'. loadAll() splits them out so
 // EVERY existing screen, report, stock calc and deal balance automatically sees
@@ -1096,7 +1129,7 @@ function isPending(r){ return r && r.approval === 'pending'; }
 function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=>d.id===id); }
 function anyDelivery(id){ return allDeliveries.find(d=>d.id===id) || pendingDeliveries.find(d=>d.id===id); }
 function anyIssue(id){ return allStockIssues.find(d=>d.id===id) || pendingIssues.find(d=>d.id===id); }
-function pendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length; }
+function pendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length + pendingOverheads.length; }
 // An operator may edit/delete ONLY their own still-pending deal. Everything an
 // admin has already approved is locked to them — they may only log entries against it.
 function canOprActOnDeal(deal){ return !!deal && isPending(deal) && deal.createdBy === CU.username; }
@@ -1183,6 +1216,14 @@ const ADMIN_SECTIONS = [
       { id: 'sku-ledger',       label: 'SKU Ledger',        icon: '📈', panel: 'stock', stockSub: 'ledger' },
       { id: 'issue-history',    label: 'Issue History',     icon: '📋', panel: 'stock', stockSub: 'issue-history' },
       { id: 'set-opening',      label: 'Set Opening Stock', icon: '⚙',  panel: 'stock', stockSub: 'set-opening' },
+    ]
+  },
+  { id: 'overheads', icon: '💰', label: 'Overheads', panel: 'oh-daily',
+    subs: [
+      { id: 'oh-daily',  label: 'Daily Entry',  icon: '🧾', panel: 'oh-daily' },
+      { id: 'oh-period', label: 'Period Entry', icon: '📆', panel: 'oh-period' },
+      { id: 'oh-wages',  label: 'Daily Wages',  icon: '👷', panel: 'oh-wages' },
+      { id: 'oh-log',    label: 'Overhead Log', icon: '📚', panel: 'oh-log' },
     ]
   },
   { id: 'opr-review',   icon: '🔍', label: 'Operator Review', panel: 'opr-review' },
@@ -1328,6 +1369,10 @@ function triggerPanelRender(panelId, mode, stockSub) {
   else if (panelId === 'skus') renderSkus();
   else if (panelId === 'suppliers') renderSuppliers();
   else if (panelId === 'ohcats') renderOverheadCats();
+  else if (panelId === 'oh-daily')  renderOhDailyForm();
+  else if (panelId === 'oh-period') renderOhPeriodForm();
+  else if (panelId === 'oh-wages')  renderOhWagesForm();
+  else if (panelId === 'oh-log')    renderOhLog();
   else if (panelId === 'add-delivery') {
     setupDeliveryForm();
     if (mode === 'bulk') setDeliveryMode('bulk');
@@ -1367,7 +1412,7 @@ async function initApp() {
 
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap, ocSnap] = await Promise.all([
+    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap, ocSnap, ohSnap] = await Promise.all([
       db.collection('suppliers').orderBy('name').get(),
       db.collection('skus').orderBy('name').get(),
       db.collection('deals').orderBy('createdAt', 'desc').get(),
@@ -1377,7 +1422,8 @@ async function loadAll() {
       db.collection('stock_issues').orderBy('date', 'desc').get(),
       db.collection('sub_categories').orderBy('name').get(),
       db.collection('departments').orderBy('name').get(),
-      db.collection('overhead_categories').orderBy('name').get()
+      db.collection('overhead_categories').orderBy('name').get(),
+      db.collection('overheads').orderBy('dateFrom', 'desc').get()
     ]);
     allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1408,6 +1454,16 @@ async function loadAll() {
     allSubCategories = scSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allDepartments   = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allOverheadCategories = ocSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Same approval split as deals/deliveries/issues: pending entries are held out of
+    // allOverheads so they can never reach a cost calculation before being approved.
+    const _oh = ohSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (isOpr() || isAccounts()) {
+      allOverheads     = _oh.filter(o => !isPending(o) || o.createdBy === CU.username);
+      pendingOverheads = [];
+    } else {
+      allOverheads     = _oh.filter(o => !isPending(o));
+      pendingOverheads = _oh.filter(o => isPending(o));
+    }
     await seedDepartmentsIfEmpty();
     await seedOverheadCategoriesIfEmpty();
     // Re-render current active section with fresh data
@@ -2874,6 +2930,309 @@ async function deleteOverheadCat(id) {
   if (used > 0) { alert(`Cannot delete "${cat.name}" — ${used} overhead entrie(s) use it.\nDisable it instead to stop it appearing on new entries.`); return; }
   if (!confirm(`Delete overhead category "${cat.name}"?`)) return;
   try { await db.collection('overhead_categories').doc(id).delete(); await loadAll(); }
+  catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// ══════════════════════════════════════════════
+// OVERHEAD ENTRY
+// ══════════════════════════════════════════════
+// Only leaves are selectable: if a category has children you must pick one of them,
+// so a cost never lands on a parent and vanishes from the breakdown.
+function selectableOverheadCats(typeFilter) {
+  return allOverheadCategories
+    .filter(x => x.active !== false)
+    .filter(x => overheadChildrenOf(x.id).length === 0)
+    .filter(x => !typeFilter || x.type === typeFilter)
+    .map(x => ({ ...x, path: x.parent ? `${getOverheadCat(x.parent).name} › ${x.name}` : x.name }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+function ohCatOptions(selectedId, typeFilter) {
+  return selectableOverheadCats(typeFilter)
+    .map(x => `<option value="${x.id}" ${x.id === selectedId ? 'selected' : ''}>${x.path}</option>`)
+    .join('');
+}
+// Inclusive day count between two ISO dates
+function daysBetween(from, to) {
+  const a = new Date(from), b = new Date(to);
+  if (isNaN(a) || isNaN(b)) return 0;
+  return Math.floor((b - a) / 86400000) + 1;
+}
+function ohSavedToast(el, msg, warn) {
+  if (!el) return;
+  el.className = 'alert ' + (warn ? 'alert-warn' : 'alert-success');
+  el.style.display = 'block';
+  el.textContent = msg;
+  setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+
+// ── Daily Entry ──
+function renderOhDailyForm() {
+  const el = document.getElementById('oh-daily-form');
+  if (!el) return;
+  const cats = selectableOverheadCats();
+  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No overhead categories yet — add some under Master Data → Overhead Categories.</div>'; return; }
+  el.innerHTML = `
+    <div class="mfg"><label>Date *</label><input type="date" id="ohd-date" value="${today()}" /></div>
+    <div class="mfg"><label>Category *</label><select id="ohd-cat" onchange="onOhDailyCat()">${ohCatOptions(null)}</select></div>
+    <div class="mfg" id="ohd-qty-wrap" style="display:none;"><label id="ohd-qty-label">Quantity</label>
+      <input type="number" id="ohd-qty" placeholder="Optional" min="0" step="0.01" /></div>
+    <div class="mfg"><label>Amount (₹) *</label><input type="number" id="ohd-amt" placeholder="Enter amount" min="0" step="0.01" /></div>
+    <div class="mfg"><label>Notes</label><textarea id="ohd-notes" rows="2" placeholder="Bill no., reference, etc."></textarea></div>
+    <div id="ohd-alert" class="alert" style="display:none;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+      <button class="btn btn-blue" onclick="saveOhDaily()">Save Entry</button>
+    </div>`;
+  onOhDailyCat();
+}
+function onOhDailyCat() {
+  const cat = getOverheadCat(document.getElementById('ohd-cat').value);
+  const wrap = document.getElementById('ohd-qty-wrap');
+  if (!wrap) return;
+  // Quantity tracking is inherited from the parent when the leaf itself doesn't set it
+  const parent = cat.parent ? getOverheadCat(cat.parent) : null;
+  const tracks = cat.tracksQty || (parent && parent.tracksQty);
+  const unit = cat.defaultUnit || (parent && parent.defaultUnit) || '';
+  wrap.style.display = tracks ? '' : 'none';
+  const lbl = document.getElementById('ohd-qty-label');
+  if (lbl) lbl.textContent = 'Quantity' + (unit ? ` (${unit})` : '');
+}
+async function saveOhDaily() {
+  const alertEl = document.getElementById('ohd-alert');
+  const date = document.getElementById('ohd-date').value;
+  const categoryId = document.getElementById('ohd-cat').value;
+  const amount = parseFloat(document.getElementById('ohd-amt').value);
+  const qtyRaw = document.getElementById('ohd-qty').value;
+  const notes = document.getElementById('ohd-notes').value.trim();
+  if (!date || !categoryId || isNaN(amount) || amount < 0) { ohSavedToast(alertEl, 'Please fill date, category and a valid amount.', true); return; }
+  const cat = getOverheadCat(categoryId);
+  const parent = cat.parent ? getOverheadCat(cat.parent) : null;
+  const unit = cat.defaultUnit || (parent && parent.defaultUnit) || null;
+  try {
+    await db.collection('overheads').add({
+      categoryId, type: cat.type || 'variable',
+      amount, dateFrom: date, dateTo: date,
+      qty: qtyRaw === '' ? null : parseFloat(qtyRaw),
+      unit: qtyRaw === '' ? null : unit,
+      notes,
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      ...(needsApproval() ? { approval: 'pending' } : {})
+    });
+    await loadAll();
+    renderOhDailyForm();
+    ohSavedToast(document.getElementById('ohd-alert'),
+      `✓ ₹${fmtN(amount)} recorded for ${cat.name} on ${fmtD(date)}.` + (needsApproval() ? ' Awaiting admin approval.' : ''));
+  } catch(e) { ohSavedToast(alertEl, fmtFirebaseError(e), true); }
+}
+
+// ── Period Entry ──
+function renderOhPeriodForm() {
+  const el = document.getElementById('oh-period-form');
+  if (!el) return;
+  const cats = selectableOverheadCats();
+  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No overhead categories yet — add some under Master Data → Overhead Categories.</div>'; return; }
+  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
+  el.innerHTML = `
+    <div class="mfg"><label>Category *</label><select id="ohp-cat">${ohCatOptions(null)}</select></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="mfg" style="flex:1;min-width:150px;"><label>Period From *</label>
+        <input type="date" id="ohp-from" value="${monthAgo.toISOString().slice(0,10)}" onchange="onOhPeriodChange()" /></div>
+      <div class="mfg" style="flex:1;min-width:150px;"><label>Period To *</label>
+        <input type="date" id="ohp-to" value="${today()}" onchange="onOhPeriodChange()" /></div>
+    </div>
+    <div class="mfg"><label>Total Amount (₹) *</label>
+      <input type="number" id="ohp-amt" placeholder="Total for the whole period" min="0" step="0.01" oninput="onOhPeriodChange()" /></div>
+    <div id="ohp-spread" style="display:none;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#1e40af;font-weight:600;"></div>
+    <div class="mfg"><label>Notes</label><textarea id="ohp-notes" rows="2" placeholder="Bill no., meter reading, reference, etc."></textarea></div>
+    <div id="ohp-alert" class="alert" style="display:none;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+      <button class="btn btn-blue" onclick="saveOhPeriod()">Save Entry</button>
+    </div>`;
+  onOhPeriodChange();
+}
+function onOhPeriodChange() {
+  const box = document.getElementById('ohp-spread');
+  if (!box) return;
+  const from = document.getElementById('ohp-from').value;
+  const to = document.getElementById('ohp-to').value;
+  const amt = parseFloat(document.getElementById('ohp-amt').value);
+  const days = daysBetween(from, to);
+  if (!from || !to || days <= 0 || isNaN(amt) || amt <= 0) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.textContent = `Spreads as ₹${fmtN((amt / days).toFixed(2))} per day across ${days} day${days > 1 ? 's' : ''} (${fmtD(from)} → ${fmtD(to)}).`;
+}
+async function saveOhPeriod() {
+  const alertEl = document.getElementById('ohp-alert');
+  const categoryId = document.getElementById('ohp-cat').value;
+  const dateFrom = document.getElementById('ohp-from').value;
+  const dateTo = document.getElementById('ohp-to').value;
+  const amount = parseFloat(document.getElementById('ohp-amt').value);
+  const notes = document.getElementById('ohp-notes').value.trim();
+  if (!categoryId || !dateFrom || !dateTo || isNaN(amount) || amount < 0) { ohSavedToast(alertEl, 'Please fill category, both dates and a valid amount.', true); return; }
+  if (daysBetween(dateFrom, dateTo) <= 0) { ohSavedToast(alertEl, '"Period To" must be on or after "Period From".', true); return; }
+  const cat = getOverheadCat(categoryId);
+  try {
+    await db.collection('overheads').add({
+      categoryId, type: cat.type || 'fixed',
+      amount, dateFrom, dateTo, qty: null, unit: null, notes,
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      ...(needsApproval() ? { approval: 'pending' } : {})
+    });
+    await loadAll();
+    renderOhPeriodForm();
+    ohSavedToast(document.getElementById('ohp-alert'),
+      `✓ ₹${fmtN(amount)} recorded for ${cat.name} across ${daysBetween(dateFrom, dateTo)} days.` + (needsApproval() ? ' Awaiting admin approval.' : ''));
+  } catch(e) { ohSavedToast(alertEl, fmtFirebaseError(e), true); }
+}
+
+// ── Daily Wages ──
+// One row per worker category; blank rows are skipped. Saves one record per filled row
+// so the log and the dashboard can break wages down by task.
+function wageCategories() {
+  const parent = allOverheadCategories.find(x => !x.parent && /daily wages/i.test(x.name || ''));
+  if (!parent) return [];
+  return overheadChildrenOf(parent.id).filter(x => x.active !== false);
+}
+function renderOhWagesForm() {
+  const el = document.getElementById('oh-wages-form');
+  if (!el) return;
+  const cats = wageCategories();
+  if (!cats.length) {
+    el.innerHTML = '<div class="alert alert-warn" style="display:block;">No worker categories found. Add sub-categories under "Daily Wages" in Master Data → Overhead Categories.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="card" style="max-width:720px;padding:20px;">
+      <div class="mfg"><label>Date *</label><input type="date" id="ohw-date" value="${today()}" /></div>
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px;">Amount paid per category — leave blank where none</div>
+      ${cats.map(cat => `
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
+          <div style="flex:1;font-size:13px;color:#334155;font-weight:600;">${cat.name}</div>
+          <input type="number" id="ohw-amt-${cat.id}" placeholder="₹" min="0" step="0.01"
+            style="width:150px;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;"
+            oninput="onOhWagesTotal()" />
+        </div>`).join('')}
+      <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;border-top:2px solid #f1f5f9;margin-top:12px;padding-top:12px;">
+        <span style="font-size:13px;font-weight:700;color:#0f2044;">Day total</span>
+        <span id="ohw-total" style="font-size:16px;font-weight:800;color:#1565c0;">₹0</span>
+      </div>
+      <div class="mfg" style="margin-top:12px;"><label>Notes</label><textarea id="ohw-notes" rows="2" placeholder="Optional"></textarea></div>
+      <div id="ohw-alert" class="alert" style="display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-blue" onclick="saveOhWages()">Save Day's Wages</button>
+      </div>
+    </div>`;
+  onOhWagesTotal();
+}
+function onOhWagesTotal() {
+  const t = wageCategories().reduce((s, cat) => {
+    const v = parseFloat(document.getElementById(`ohw-amt-${cat.id}`)?.value);
+    return s + (isNaN(v) ? 0 : v);
+  }, 0);
+  const el = document.getElementById('ohw-total');
+  if (el) el.textContent = '₹' + fmtN(Math.round(t));
+}
+async function saveOhWages() {
+  const alertEl = document.getElementById('ohw-alert');
+  const date = document.getElementById('ohw-date').value;
+  const notes = document.getElementById('ohw-notes').value.trim();
+  if (!date) { ohSavedToast(alertEl, 'Please pick a date.', true); return; }
+  const rows = wageCategories()
+    .map(cat => ({ cat, amt: parseFloat(document.getElementById(`ohw-amt-${cat.id}`)?.value) }))
+    .filter(r => !isNaN(r.amt) && r.amt > 0);
+  if (!rows.length) { ohSavedToast(alertEl, 'Enter an amount against at least one category.', true); return; }
+  try {
+    const batch = db.batch();
+    rows.forEach(r => {
+      batch.set(db.collection('overheads').doc(), {
+        categoryId: r.cat.id, type: 'variable',
+        amount: r.amt, dateFrom: date, dateTo: date, qty: null, unit: null, notes,
+        createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        ...(needsApproval() ? { approval: 'pending' } : {})
+      });
+    });
+    await batch.commit();
+    const total = rows.reduce((s, r) => s + r.amt, 0);
+    await loadAll();
+    renderOhWagesForm();
+    ohSavedToast(document.getElementById('ohw-alert'),
+      `✓ ₹${fmtN(Math.round(total))} across ${rows.length} categor${rows.length > 1 ? 'ies' : 'y'} recorded for ${fmtD(date)}.` + (needsApproval() ? ' Awaiting admin approval.' : ''));
+  } catch(e) { ohSavedToast(alertEl, fmtFirebaseError(e), true); }
+}
+
+// ── Overhead Log (admin only — shows totals) ──
+let ohLogFrom = '', ohLogTo = '';
+function renderOhLog() {
+  const el = document.getElementById('oh-log-content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+  if (!ohLogFrom) { const d = new Date(); d.setDate(d.getDate() - 30); ohLogFrom = d.toISOString().slice(0,10); }
+  if (!ohLogTo) ohLogTo = today();
+  el.innerHTML = `
+    <div class="sticky-filters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-top:10px;">
+      <div><div class="rpt-filter-label">From</div><input type="date" id="ohl-from" value="${ohLogFrom}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <div><div class="rpt-filter-label">To</div><input type="date" id="ohl-to" value="${ohLogTo}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <button class="btn btn-blue btn-sm" onclick="ohLogFrom=document.getElementById('ohl-from').value;ohLogTo=document.getElementById('ohl-to').value;renderOhLogTable();">Apply</button>
+    </div>
+    <div id="ohl-body"></div>`;
+  renderOhLogTable();
+}
+function renderOhLogTable() {
+  const body = document.getElementById('ohl-body');
+  if (!body) return;
+  // An entry belongs to the window if its period overlaps it at all
+  const rows = allOverheads
+    .filter(o => (o.dateTo || o.dateFrom) >= ohLogFrom && (o.dateFrom || o.dateTo) <= ohLogTo)
+    .sort((a, b) => (b.dateFrom || '').localeCompare(a.dateFrom || ''));
+  const total = rows.reduce((s, o) => s + (o.amount || 0), 0);
+
+  // Totals by top-level category
+  const byTop = {};
+  rows.forEach(o => {
+    const cat = getOverheadCat(o.categoryId);
+    const topName = cat.parent ? getOverheadCat(cat.parent).name : cat.name;
+    byTop[topName] = (byTop[topName] || 0) + (o.amount || 0);
+  });
+  const summary = Object.entries(byTop).sort((a, b) => b[1] - a[1]).map(([n, v]) =>
+    `<div style="display:flex;justify-content:space-between;gap:20px;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
+      <span style="color:#475569;">${n}</span><strong style="color:#0f2044;">₹${fmtN(Math.round(v))}</strong></div>`).join('');
+
+  body.innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div class="card" style="flex:1;min-width:220px;padding:16px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Total in period</div>
+        <div style="font-size:26px;font-weight:800;color:#1565c0;margin-top:4px;">₹${fmtN(Math.round(total))}</div>
+        <div style="font-size:12px;color:#64748b;">${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}</div>
+      </div>
+      <div class="card" style="flex:2;min-width:260px;padding:16px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:6px;">By category</div>
+        ${summary || '<div style="font-size:13px;color:#94a3b8;">Nothing recorded in this period.</div>'}
+      </div>
+    </div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <thead><tr><th>Period</th><th>Category</th><th>Qty</th><th>Amount</th><th>Notes</th><th>By</th><th>Actions</th></tr></thead>
+      <tbody>${rows.map(o => {
+        const cat = getOverheadCat(o.categoryId);
+        const path = cat.parent ? `${getOverheadCat(cat.parent).name} › ${cat.name}` : cat.name;
+        const span = (o.dateFrom === o.dateTo) ? fmtD(o.dateFrom) : `${fmtD(o.dateFrom)} → ${fmtD(o.dateTo)}`;
+        const days = daysBetween(o.dateFrom, o.dateTo);
+        return `<tr>
+          <td>${span}${days > 1 ? `<div style="font-size:10px;color:#94a3b8;">${days} days · ₹${fmtN(((o.amount||0)/days).toFixed(2))}/day</div>` : ''}</td>
+          <td><strong>${path}</strong></td>
+          <td>${o.qty != null ? fmtQ(o.qty) + (o.unit ? ' ' + o.unit : '') : '—'}</td>
+          <td><strong>₹${fmtN(Math.round(o.amount || 0))}</strong></td>
+          <td style="font-size:12px;color:#64748b;">${o.notes || '—'}</td>
+          <td style="font-size:12px;">${o.createdBy || '—'}</td>
+          <td><button class="btn btn-sm btn-red" onclick="deleteOverhead('${o.id}')">Del</button></td>
+        </tr>`;
+      }).join('') || emptyRow(7, 'No overhead entries in this period')}</tbody>
+    </table></div></div>`;
+}
+async function deleteOverhead(id) {
+  const o = allOverheads.find(x => x.id === id) || pendingOverheads.find(x => x.id === id);
+  if (!o) return;
+  const cat = getOverheadCat(o.categoryId);
+  if (!confirm(`Delete this overhead entry?\n\n${cat.name} — ₹${fmtN(Math.round(o.amount || 0))}\n${fmtD(o.dateFrom)}${o.dateFrom !== o.dateTo ? ' → ' + fmtD(o.dateTo) : ''}\n\nCannot be undone.`)) return;
+  try { await db.collection('overheads').doc(id).delete(); await loadAll(); renderOhLog(); }
   catch(e) { alert(fmtFirebaseError(e)); }
 }
 
@@ -5218,7 +5577,8 @@ window.addEventListener('appinstalled', () => {
     'submitDelivery','submitIssue','restoreBackup',
     'approveOne','rejectOne','approveAllPending',
     'addOverheadCat','addOverheadChild','editOverheadCat',
-    'toggleOverheadCatActive','deleteOverheadCat'];
+    'toggleOverheadCatActive','deleteOverheadCat',
+    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
