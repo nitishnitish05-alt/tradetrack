@@ -1466,6 +1466,7 @@ async function loadAll() {
     }
     await seedDepartmentsIfEmpty();
     await seedOverheadCategoriesIfEmpty();
+    await backfillOverheadEntryModes();
     // Re-render current active section with fresh data
     if (currentSectionId) switchSection(currentSectionId);
     else switchSection('dashboard');
@@ -1507,27 +1508,57 @@ function overheadChildrenOf(parentId) {
 // Seeded once, only when the collection is completely empty — same guard as departments.
 // Fuel (coal/wood) is deliberately absent: it is tracked as SKUs, not overheads.
 // Inward freight is absent too: it lives on the delivery record.
+// type      = ECONOMIC classification (variable/fixed) — what the dashboard uses
+// entryMode = ENTRY MECHANIC (which screen) — 'daily' | 'period' | 'wages' | 'both'
+// These are independent. Electricity is economically variable but billed by period.
 const SEED_OVERHEAD_CATS = [
-  // { name, type, tracksQty, defaultUnit, children: [] }
-  { name: 'Electricity',              type: 'variable', tracksQty: true,  defaultUnit: 'unit' },
-  { name: 'Daily Wages',              type: 'variable', tracksQty: false, defaultUnit: null, children: [
+  { name: 'Electricity',              type: 'variable', entryMode: 'period', tracksQty: true,  defaultUnit: 'unit' },
+  { name: 'Daily Wages',              type: 'variable', entryMode: 'wages',  tracksQty: false, defaultUnit: null, children: [
       'Loading / Unloading', 'Cleaning / Housekeeping', 'Godown / Store',
       'Production Helper', 'Packing Helper', 'Maintenance Helper', 'General / Miscellaneous'
   ]},
-  { name: 'Consumables',              type: 'variable', tracksQty: false, defaultUnit: null, children: [
+  { name: 'Consumables',              type: 'variable', entryMode: 'daily',  tracksQty: false, defaultUnit: null, children: [
       'Packing Consumables', 'Production Consumables', 'Repairs & Maintenance', 'Miscellaneous'
   ]},
-  { name: 'Rent',                     type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Permanent Staff Salaries', type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Admin Salaries',           type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Insurance',                type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Licenses & Compliance',    type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Professional / Accounting Fees', type: 'fixed', tracksQty: false, defaultUnit: null },
-  { name: 'Depreciation',             type: 'fixed',    tracksQty: false, defaultUnit: null },
-  { name: 'Internet & Phone',         type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Rent',                     type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Permanent Staff Salaries', type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Admin Salaries',           type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Insurance',                type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Licenses & Compliance',    type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Professional / Accounting Fees', type: 'fixed', entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Depreciation',             type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
+  { name: 'Internet & Phone',         type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
   // Loan PRINCIPAL is deliberately excluded — it is a balance-sheet movement, not a cost.
-  { name: 'Loan Interest',            type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Loan Interest',            type: 'fixed',    entryMode: 'period', tracksQty: false, defaultUnit: null },
 ];
+const ENTRY_MODE_LABEL = { daily: 'Daily Entry', period: 'Period Entry', wages: 'Daily Wages', both: 'Daily + Period' };
+
+// Categories seeded before entryMode existed have no value for it. Backfill once,
+// idempotently — only touches docs that are actually missing the field.
+async function backfillOverheadEntryModes() {
+  const missing = allOverheadCategories.filter(x => !x.entryMode);
+  if (!missing.length) return;
+  const seedByName = {};
+  SEED_OVERHEAD_CATS.forEach(s => {
+    seedByName[s.name.toLowerCase()] = s.entryMode || 'daily';
+    (s.children || []).forEach(ch => { seedByName[ch.toLowerCase()] = s.entryMode || 'daily'; });
+  });
+  try {
+    const batch = db.batch();
+    missing.forEach(cat => {
+      let mode = seedByName[(cat.name || '').toLowerCase()];
+      if (!mode) {
+        // Unknown category: inherit from parent if it has one, else infer from type
+        const parent = cat.parent ? allOverheadCategories.find(x => x.id === cat.parent) : null;
+        mode = (parent && parent.entryMode) || (cat.type === 'fixed' ? 'period' : 'daily');
+      }
+      batch.update(db.collection('overhead_categories').doc(cat.id), { entryMode: mode });
+    });
+    await batch.commit();
+    const snap = await db.collection('overhead_categories').orderBy('name').get();
+    allOverheadCategories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { console.warn('entryMode backfill failed (will retry on next load):', e); }
+}
 
 async function seedOverheadCategoriesIfEmpty() {
   if (allOverheadCategories.length > 0) return; // already seeded or user-created — never touch again
@@ -1541,6 +1572,7 @@ async function seedOverheadCategoriesIfEmpty() {
       parentIds[cat.name] = ref.id;
       batch1.set(ref, {
         name: cat.name, type: cat.type, parent: null,
+        entryMode: cat.entryMode || 'daily',
         tracksQty: !!cat.tracksQty, defaultUnit: cat.defaultUnit || null,
         active: true, ...meta
       });
@@ -1552,6 +1584,7 @@ async function seedOverheadCategoriesIfEmpty() {
       kids.forEach(cat => cat.children.forEach(childName => {
         batch2.set(db.collection('overhead_categories').doc(), {
           name: childName, type: cat.type, parent: parentIds[cat.name],
+          entryMode: cat.entryMode || 'daily',
           tracksQty: false, defaultUnit: null, active: true, ...meta
         });
       }));
@@ -2779,10 +2812,44 @@ async function repairOrphans() {
 // ══════════════════════════════════════════════
 // How many overhead entries reference a category (incl. via its children)?
 // Used to block deletion of anything already in use.
+// Must count pending entries too, otherwise a category whose only entries are awaiting
+// approval looks unused and can be deleted out from under them.
+function allOverheadRecords() {
+  return (typeof allOverheads !== 'undefined' ? allOverheads : [])
+    .concat(typeof pendingOverheads !== 'undefined' ? pendingOverheads : []);
+}
 function overheadUsageCount(catId) {
   const ids = [catId, ...overheadChildrenOf(catId).map(x => x.id)];
-  return (typeof allOverheads !== 'undefined' ? allOverheads : [])
-    .filter(o => ids.includes(o.categoryId)).length;
+  return allOverheadRecords().filter(o => ids.includes(o.categoryId)).length;
+}
+
+// Which screen does this category appear on? Shown as a badge so the split between
+// economic type (variable/fixed) and entry mechanic is visible at a glance.
+function ohModeBadge(cat) {
+  const m = effectiveEntryMode(cat);
+  const colors = {
+    daily:  ['#f0fdf4', '#16a34a'],
+    period: ['#fef3c7', '#b45309'],
+    wages:  ['#f5f3ff', '#7c3aed'],
+    both:   ['#f1f5f9', '#475569'],
+  };
+  const [bg, fg] = colors[m] || colors.both;
+  return `<span style="font-size:10px;background:${bg};color:${fg};padding:2px 7px;border-radius:5px;font-weight:700;">${ENTRY_MODE_LABEL[m] || m}</span>`;
+}
+// Ask which screen a category should be entered on. Returns null if cancelled.
+function promptEntryMode(current) {
+  const ans = (prompt(
+    'Which screen is this entered on?\n\n' +
+    '  D = Daily Entry (single-day costs)\n' +
+    '  P = Period Entry (spread over a date range)\n' +
+    '  W = Daily Wages screen\n' +
+    '  B = Both Daily and Period\n\n' +
+    'Currently: ' + (ENTRY_MODE_LABEL[current] || 'Daily Entry'),
+    (current || 'daily').charAt(0).toUpperCase()
+  ) || '').trim().toUpperCase();
+  if (!ans) return null;
+  const map = { D: 'daily', P: 'period', W: 'wages', B: 'both' };
+  return map[ans.charAt(0)] || null;
 }
 
 function renderOverheadCats() {
@@ -2797,8 +2864,9 @@ function renderOverheadCats() {
       const qtyBadge = cat.tracksQty
         ? `<span style="font-size:10px;background:#eff6ff;color:#1565c0;padding:2px 7px;border-radius:5px;font-weight:700;">qty${cat.defaultUnit ? ' · ' + cat.defaultUnit : ''}</span>`
         : '';
+      const modeBadge = ohModeBadge(cat);
       const head = `<tr style="${cat.active === false ? 'opacity:.5;' : ''}">
-        <td><strong>${cat.name}</strong> ${qtyBadge}
+        <td><strong>${cat.name}</strong> ${qtyBadge} ${kids.length ? '' : modeBadge}
           ${cat.active === false ? '<span style="font-size:10px;color:#dc2626;font-weight:700;"> (disabled)</span>' : ''}</td>
         <td>${kids.length ? kids.length + ' sub' : '—'}</td>
         <td>${used ? used + ' entries' : '<span style="color:#94a3b8;">unused</span>'}</td>
@@ -2810,9 +2878,9 @@ function renderOverheadCats() {
         </td>
       </tr>`;
       const kidRows = kids.map(k => {
-        const kUsed = (typeof allOverheads !== 'undefined' ? allOverheads : []).filter(o => o.categoryId === k.id).length;
+        const kUsed = allOverheadRecords().filter(o => o.categoryId === k.id).length;
         return `<tr style="${k.active === false ? 'opacity:.5;' : ''}">
-          <td style="padding-left:28px;color:#475569;">↳ ${k.name}
+          <td style="padding-left:28px;color:#475569;">↳ ${k.name} ${ohModeBadge(k)}
             ${k.active === false ? '<span style="font-size:10px;color:#dc2626;font-weight:700;"> (disabled)</span>' : ''}</td>
           <td>—</td>
           <td>${kUsed ? kUsed + ' entries' : '<span style="color:#94a3b8;">unused</span>'}</td>
@@ -2859,12 +2927,16 @@ async function addOverheadCat(type) {
   if (allOverheadCategories.some(x => !x.parent && (x.name || '').toLowerCase() === name.toLowerCase())) {
     alert('A category with this name already exists.'); return;
   }
+  // Default the mechanic from the economic type, but let it be overridden — they are
+  // independent (electricity is variable yet entered by period).
+  const entryMode = promptEntryMode(type === 'fixed' ? 'period' : 'daily');
+  if (!entryMode) return;
   const tracksQty = confirm('Track a quantity alongside the amount?\n\nUseful for things like electricity units or gas cylinders — it lets the dashboard tell "the rate went up" apart from "we used more".\n\nOK = yes, Cancel = no');
   let defaultUnit = null;
   if (tracksQty) { defaultUnit = (prompt('Unit label (e.g. unit, cylinder, litre):') || '').trim() || null; }
   try {
     await db.collection('overhead_categories').add({
-      name, type, parent: null, tracksQty, defaultUnit, active: true,
+      name, type, parent: null, entryMode, tracksQty, defaultUnit, active: true,
       createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     await loadAll();
@@ -2881,7 +2953,8 @@ async function addOverheadChild(parentId) {
   }
   try {
     await db.collection('overhead_categories').add({
-      name, type: parent.type, parent: parentId, tracksQty: false, defaultUnit: null, active: true,
+      name, type: parent.type, parent: parentId,
+      entryMode: effectiveEntryMode(parent), tracksQty: false, defaultUnit: null, active: true,
       createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     await loadAll();
@@ -2898,6 +2971,8 @@ async function editOverheadCat(id) {
     alert('Another category already has this name.'); return;
   }
   const patch = { name };
+  const newMode = promptEntryMode(effectiveEntryMode(cat));
+  if (newMode) patch.entryMode = newMode;
   // Quantity tracking only applies to top-level categories
   if (!cat.parent) {
     const tracksQty = confirm(`Track a quantity alongside the amount for "${name}"?\n\nCurrently: ${cat.tracksQty ? 'YES' : 'NO'}\n\nOK = yes, Cancel = no`);
@@ -2938,16 +3013,28 @@ async function deleteOverheadCat(id) {
 // ══════════════════════════════════════════════
 // Only leaves are selectable: if a category has children you must pick one of them,
 // so a cost never lands on a parent and vanishes from the breakdown.
-function selectableOverheadCats(typeFilter) {
+// mode: 'daily' | 'period' | 'wages'. A category set to 'both' appears in daily AND period.
+// Falls back to the parent's mode, then to type, for anything not yet backfilled.
+function effectiveEntryMode(cat) {
+  if (cat.entryMode) return cat.entryMode;
+  const parent = cat.parent ? getOverheadCat(cat.parent) : null;
+  if (parent && parent.entryMode) return parent.entryMode;
+  return cat.type === 'fixed' ? 'period' : 'daily';
+}
+function selectableOverheadCats(mode) {
   return allOverheadCategories
     .filter(x => x.active !== false)
-    .filter(x => overheadChildrenOf(x.id).length === 0)
-    .filter(x => !typeFilter || x.type === typeFilter)
+    .filter(x => overheadChildrenOf(x.id).length === 0)   // leaves only
+    .filter(x => {
+      if (!mode) return true;
+      const m = effectiveEntryMode(x);
+      return m === mode || m === 'both';
+    })
     .map(x => ({ ...x, path: x.parent ? `${getOverheadCat(x.parent).name} › ${x.name}` : x.name }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }
-function ohCatOptions(selectedId, typeFilter) {
-  return selectableOverheadCats(typeFilter)
+function ohCatOptions(selectedId, mode) {
+  return selectableOverheadCats(mode)
     .map(x => `<option value="${x.id}" ${x.id === selectedId ? 'selected' : ''}>${x.path}</option>`)
     .join('');
 }
@@ -2969,11 +3056,11 @@ function ohSavedToast(el, msg, warn) {
 function renderOhDailyForm() {
   const el = document.getElementById('oh-daily-form');
   if (!el) return;
-  const cats = selectableOverheadCats();
-  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No overhead categories yet — add some under Master Data → Overhead Categories.</div>'; return; }
+  const cats = selectableOverheadCats('daily');
+  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No categories are set to Daily Entry. Set a category\'s entry screen to "Daily" under Master Data → Overhead Categories.</div>'; return; }
   el.innerHTML = `
     <div class="mfg"><label>Date *</label><input type="date" id="ohd-date" value="${today()}" /></div>
-    <div class="mfg"><label>Category *</label><select id="ohd-cat" onchange="onOhDailyCat()">${ohCatOptions(null)}</select></div>
+    <div class="mfg"><label>Category *</label><select id="ohd-cat" onchange="onOhDailyCat()">${ohCatOptions(null, 'daily')}</select></div>
     <div class="mfg" id="ohd-qty-wrap" style="display:none;"><label id="ohd-qty-label">Quantity</label>
       <input type="number" id="ohd-qty" placeholder="Optional" min="0" step="0.01" /></div>
     <div class="mfg"><label>Amount (₹) *</label><input type="number" id="ohd-amt" placeholder="Enter amount" min="0" step="0.01" /></div>
@@ -3028,11 +3115,11 @@ async function saveOhDaily() {
 function renderOhPeriodForm() {
   const el = document.getElementById('oh-period-form');
   if (!el) return;
-  const cats = selectableOverheadCats();
-  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No overhead categories yet — add some under Master Data → Overhead Categories.</div>'; return; }
+  const cats = selectableOverheadCats('period');
+  if (!cats.length) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">No categories are set to Period Entry. Set a category\'s entry screen to "Period" under Master Data → Overhead Categories.</div>'; return; }
   const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 30);
   el.innerHTML = `
-    <div class="mfg"><label>Category *</label><select id="ohp-cat">${ohCatOptions(null)}</select></div>
+    <div class="mfg"><label>Category *</label><select id="ohp-cat">${ohCatOptions(null, 'period')}</select></div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <div class="mfg" style="flex:1;min-width:150px;"><label>Period From *</label>
         <input type="date" id="ohp-from" value="${monthAgo.toISOString().slice(0,10)}" onchange="onOhPeriodChange()" /></div>
@@ -3088,16 +3175,14 @@ async function saveOhPeriod() {
 // One row per worker category; blank rows are skipped. Saves one record per filled row
 // so the log and the dashboard can break wages down by task.
 function wageCategories() {
-  const parent = allOverheadCategories.find(x => !x.parent && /daily wages/i.test(x.name || ''));
-  if (!parent) return [];
-  return overheadChildrenOf(parent.id).filter(x => x.active !== false);
+  return selectableOverheadCats('wages');
 }
 function renderOhWagesForm() {
   const el = document.getElementById('oh-wages-form');
   if (!el) return;
   const cats = wageCategories();
   if (!cats.length) {
-    el.innerHTML = '<div class="alert alert-warn" style="display:block;">No worker categories found. Add sub-categories under "Daily Wages" in Master Data → Overhead Categories.</div>';
+    el.innerHTML = '<div class="alert alert-warn" style="display:block;">No worker categories found. Add categories with entry screen set to "Daily Wages" under Master Data → Overhead Categories.</div>';
     return;
   }
   el.innerHTML = `
@@ -5564,7 +5649,8 @@ window.addEventListener('appinstalled', () => {
 // shows "Saving…" until the operation finishes.
 //
 // IMPORTANT: only USER-TRIGGERED entry points are wrapped. Internal
-// helpers (recalcDealStatus, seedDepartmentsIfEmpty, saveReorderLevel)
+// helpers (recalcDealStatus, seedDepartmentsIfEmpty, saveReorderLevel,
+// seedOverheadCategoriesIfEmpty, backfillOverheadEntryModes)
 // are deliberately NOT wrapped — they are called programmatically,
 // sometimes repeatedly, and blocking a second call would break them.
 // Verified: none of the wrapped functions call each other.
@@ -5578,7 +5664,8 @@ window.addEventListener('appinstalled', () => {
     'approveOne','rejectOne','approveAllPending',
     'addOverheadCat','addOverheadChild','editOverheadCat',
     'toggleOverheadCatActive','deleteOverheadCat',
-    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead'];
+    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead',
+    'deleteDuplicateRecord'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
