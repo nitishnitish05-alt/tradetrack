@@ -745,6 +745,16 @@
       </div>
 
       <!-- USERS -->
+      <!-- OVERHEAD CATEGORIES -->
+      <div class="panel" id="panel-ohcats">
+        <div class="content-inner">
+          <div class="ph">
+            <div><div class="ph-title">🧾 Overhead Categories</div><div class="ph-sub">Cost heads used when recording factory overheads</div></div>
+          </div>
+          <div id="ohcats-content"></div>
+        </div>
+      </div>
+
       <div class="panel" id="panel-users">
         <div class="content-inner">
           <div class="ph">
@@ -1060,6 +1070,7 @@ let CU = null;
 let allDeals = [], allDeliveries = [], allSuppliers = [], allSkus = [], allUsers = [];
 let allStockOpening = [], allStockIssues = [];
 let allSubCategories = [], allDepartments = [];
+let allOverheadCategories = [];
 // ═══ OPERATOR APPROVAL WORKFLOW ═══
 // Operator-created records carry approval:'pending'. loadAll() splits them out so
 // EVERY existing screen, report, stock calc and deal balance automatically sees
@@ -1159,6 +1170,7 @@ const ADMIN_SECTIONS = [
     subs: [
       { id: 'skus',       label: 'SKUs',      icon: '📦', panel: 'skus' },
       { id: 'suppliers',  label: 'Suppliers', icon: '🏭', panel: 'suppliers' },
+      { id: 'ohcats',     label: 'Overhead Categories', icon: '🧾', panel: 'ohcats' },
     ]
   },
   { id: 'journal', icon: '📋', label: 'Stock Journal', panel: 'add-delivery',
@@ -1315,6 +1327,7 @@ function triggerPanelRender(panelId, mode, stockSub) {
   else if (panelId === 'deals') renderDeals();
   else if (panelId === 'skus') renderSkus();
   else if (panelId === 'suppliers') renderSuppliers();
+  else if (panelId === 'ohcats') renderOverheadCats();
   else if (panelId === 'add-delivery') {
     setupDeliveryForm();
     if (mode === 'bulk') setDeliveryMode('bulk');
@@ -1354,7 +1367,7 @@ async function initApp() {
 
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap] = await Promise.all([
+    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap, ocSnap] = await Promise.all([
       db.collection('suppliers').orderBy('name').get(),
       db.collection('skus').orderBy('name').get(),
       db.collection('deals').orderBy('createdAt', 'desc').get(),
@@ -1363,7 +1376,8 @@ async function loadAll() {
       db.collection('stock_opening').orderBy('date', 'desc').get(),
       db.collection('stock_issues').orderBy('date', 'desc').get(),
       db.collection('sub_categories').orderBy('name').get(),
-      db.collection('departments').orderBy('name').get()
+      db.collection('departments').orderBy('name').get(),
+      db.collection('overhead_categories').orderBy('name').get()
     ]);
     allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1393,7 +1407,9 @@ async function loadAll() {
     }
     allSubCategories = scSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     allDepartments   = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allOverheadCategories = ocSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     await seedDepartmentsIfEmpty();
+    await seedOverheadCategoriesIfEmpty();
     // Re-render current active section with fresh data
     if (currentSectionId) switchSection(currentSectionId);
     else switchSection('dashboard');
@@ -1415,6 +1431,81 @@ function getSubCat(id) { return allSubCategories.find(s => s.id === id) || { nam
 function getDept(id) { return allDepartments.find(d => d.id === id) || { name: '—', active: false }; }
 
 // Seed the 5 initial departments exactly once (idempotent — only runs when collection is empty)
+// ⚠ Same trap as getSku: always returns truthy — never use for existence checks.
+// For existence use: allOverheadCategories.some(x => x.id === id)
+function getOverheadCat(id) {
+  return allOverheadCategories.find(x => x.id === id) || { name: '—', type: 'variable', parent: null };
+}
+// Top-level categories of a given type, with their children resolved
+function overheadCatsOfType(type) {
+  return allOverheadCategories
+    .filter(x => !x.parent && x.type === type)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+function overheadChildrenOf(parentId) {
+  return allOverheadCategories
+    .filter(x => x.parent === parentId)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+// Seeded once, only when the collection is completely empty — same guard as departments.
+// Fuel (coal/wood) is deliberately absent: it is tracked as SKUs, not overheads.
+// Inward freight is absent too: it lives on the delivery record.
+const SEED_OVERHEAD_CATS = [
+  // { name, type, tracksQty, defaultUnit, children: [] }
+  { name: 'Electricity',              type: 'variable', tracksQty: true,  defaultUnit: 'unit' },
+  { name: 'Daily Wages',              type: 'variable', tracksQty: false, defaultUnit: null, children: [
+      'Loading / Unloading', 'Cleaning / Housekeeping', 'Godown / Store',
+      'Production Helper', 'Packing Helper', 'Maintenance Helper', 'General / Miscellaneous'
+  ]},
+  { name: 'Consumables',              type: 'variable', tracksQty: false, defaultUnit: null, children: [
+      'Packing Consumables', 'Production Consumables', 'Repairs & Maintenance', 'Miscellaneous'
+  ]},
+  { name: 'Rent',                     type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Permanent Staff Salaries', type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Admin Salaries',           type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Insurance',                type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Licenses & Compliance',    type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Professional / Accounting Fees', type: 'fixed', tracksQty: false, defaultUnit: null },
+  { name: 'Depreciation',             type: 'fixed',    tracksQty: false, defaultUnit: null },
+  { name: 'Internet & Phone',         type: 'fixed',    tracksQty: false, defaultUnit: null },
+  // Loan PRINCIPAL is deliberately excluded — it is a balance-sheet movement, not a cost.
+  { name: 'Loan Interest',            type: 'fixed',    tracksQty: false, defaultUnit: null },
+];
+
+async function seedOverheadCategoriesIfEmpty() {
+  if (allOverheadCategories.length > 0) return; // already seeded or user-created — never touch again
+  try {
+    const meta = { createdBy: (CU ? CU.username : 'system'), createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+    // Parents first so children can reference real IDs
+    const parentIds = {};
+    const batch1 = db.batch();
+    SEED_OVERHEAD_CATS.forEach(cat => {
+      const ref = db.collection('overhead_categories').doc();
+      parentIds[cat.name] = ref.id;
+      batch1.set(ref, {
+        name: cat.name, type: cat.type, parent: null,
+        tracksQty: !!cat.tracksQty, defaultUnit: cat.defaultUnit || null,
+        active: true, ...meta
+      });
+    });
+    await batch1.commit();
+    const kids = SEED_OVERHEAD_CATS.filter(c => c.children && c.children.length);
+    if (kids.length) {
+      const batch2 = db.batch();
+      kids.forEach(cat => cat.children.forEach(childName => {
+        batch2.set(db.collection('overhead_categories').doc(), {
+          name: childName, type: cat.type, parent: parentIds[cat.name],
+          tracksQty: false, defaultUnit: null, active: true, ...meta
+        });
+      }));
+      await batch2.commit();
+    }
+    const snap = await db.collection('overhead_categories').orderBy('name').get();
+    allOverheadCategories = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { console.warn('Overhead category seeding failed (will retry on next load):', e); }
+}
+
 const SEED_DEPARTMENTS = ['Namkeen Production', 'Snacks Production', 'Namkeen Packing', 'Snacks Packing', 'Shared / Common'];
 async function seedDepartmentsIfEmpty() {
   if (allDepartments.length > 0) return; // already seeded (or user-created) — never touch again
@@ -2628,9 +2719,168 @@ async function repairOrphans() {
 }
 
 // ══════════════════════════════════════════════
+// OVERHEAD CATEGORIES (master data)
+// ══════════════════════════════════════════════
+// How many overhead entries reference a category (incl. via its children)?
+// Used to block deletion of anything already in use.
+function overheadUsageCount(catId) {
+  const ids = [catId, ...overheadChildrenOf(catId).map(x => x.id)];
+  return (typeof allOverheads !== 'undefined' ? allOverheads : [])
+    .filter(o => ids.includes(o.categoryId)).length;
+}
+
+function renderOverheadCats() {
+  const el = document.getElementById('ohcats-content');
+  if (!el) return;
+
+  const card = (type, title, blurb) => {
+    const cats = overheadCatsOfType(type);
+    const rows = cats.map(cat => {
+      const kids = overheadChildrenOf(cat.id);
+      const used = overheadUsageCount(cat.id);
+      const qtyBadge = cat.tracksQty
+        ? `<span style="font-size:10px;background:#eff6ff;color:#1565c0;padding:2px 7px;border-radius:5px;font-weight:700;">qty${cat.defaultUnit ? ' · ' + cat.defaultUnit : ''}</span>`
+        : '';
+      const head = `<tr style="${cat.active === false ? 'opacity:.5;' : ''}">
+        <td><strong>${cat.name}</strong> ${qtyBadge}
+          ${cat.active === false ? '<span style="font-size:10px;color:#dc2626;font-weight:700;"> (disabled)</span>' : ''}</td>
+        <td>${kids.length ? kids.length + ' sub' : '—'}</td>
+        <td>${used ? used + ' entries' : '<span style="color:#94a3b8;">unused</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn btn-sm btn-outline" onclick="addOverheadChild('${cat.id}')">+ Sub</button>
+          <button class="btn btn-sm btn-outline" onclick="editOverheadCat('${cat.id}')">✏ Edit</button>
+          <button class="btn btn-sm btn-outline" onclick="toggleOverheadCatActive('${cat.id}')">${cat.active === false ? '▶' : '⏸'}</button>
+          ${used === 0 && kids.length === 0 ? `<button class="btn btn-sm btn-red" onclick="deleteOverheadCat('${cat.id}')">Del</button>` : ''}
+        </td>
+      </tr>`;
+      const kidRows = kids.map(k => {
+        const kUsed = (typeof allOverheads !== 'undefined' ? allOverheads : []).filter(o => o.categoryId === k.id).length;
+        return `<tr style="${k.active === false ? 'opacity:.5;' : ''}">
+          <td style="padding-left:28px;color:#475569;">↳ ${k.name}
+            ${k.active === false ? '<span style="font-size:10px;color:#dc2626;font-weight:700;"> (disabled)</span>' : ''}</td>
+          <td>—</td>
+          <td>${kUsed ? kUsed + ' entries' : '<span style="color:#94a3b8;">unused</span>'}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-sm btn-outline" onclick="editOverheadCat('${k.id}')">✏ Edit</button>
+            <button class="btn btn-sm btn-outline" onclick="toggleOverheadCatActive('${k.id}')">${k.active === false ? '▶' : '⏸'}</button>
+            ${kUsed === 0 ? `<button class="btn btn-sm btn-red" onclick="deleteOverheadCat('${k.id}')">Del</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('');
+      return head + kidRows;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:20px;">
+      <div style="padding:16px 16px 4px;font-size:14px;font-weight:800;color:#0f2044;">${title}</div>
+      <div style="padding:0 16px 10px;font-size:12px;color:#64748b;">${blurb}</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Category</th><th>Sub-categories</th><th>Usage</th><th>Actions</th></tr></thead>
+        <tbody>${rows || emptyRow(4, 'No categories yet')}</tbody>
+      </table></div>
+      <div style="padding:12px 16px;"><button class="btn btn-blue btn-sm" onclick="addOverheadCat('${type}')">+ Add ${type === 'fixed' ? 'Fixed' : 'Variable'} Category</button></div>
+    </div>`;
+  };
+
+  el.innerHTML =
+    card('variable', '⚡ Variable Overheads',
+         'Rise and fall with production. Entered against a single day or a date range.') +
+    card('fixed', '🏛 Fixed Overheads',
+         'Entered once with a date range and spread evenly across it.') +
+    `<div class="card" style="padding:14px 16px;background:#f8fafc;">
+      <div style="font-size:12px;color:#475569;line-height:1.7;">
+        <strong>Not listed here on purpose:</strong><br>
+        • <strong>Coal &amp; wood</strong> — tracked as SKUs, with consumption from fuel stock-takes<br>
+        • <strong>Inward freight</strong> — recorded on the delivery record, so it lands on the material's cost<br>
+        • <strong>Production team &amp; packing contractors</strong> — computed from production volume in the Loading app<br>
+        • <strong>Loan principal</strong> — a balance-sheet movement, not a cost. Only <em>Loan Interest</em> counts.
+      </div>
+    </div>`;
+}
+
+async function addOverheadCat(type) {
+  const name = (prompt(`New ${type} overhead category:`) || '').trim();
+  if (!name) return;
+  if (allOverheadCategories.some(x => !x.parent && (x.name || '').toLowerCase() === name.toLowerCase())) {
+    alert('A category with this name already exists.'); return;
+  }
+  const tracksQty = confirm('Track a quantity alongside the amount?\n\nUseful for things like electricity units or gas cylinders — it lets the dashboard tell "the rate went up" apart from "we used more".\n\nOK = yes, Cancel = no');
+  let defaultUnit = null;
+  if (tracksQty) { defaultUnit = (prompt('Unit label (e.g. unit, cylinder, litre):') || '').trim() || null; }
+  try {
+    await db.collection('overhead_categories').add({
+      name, type, parent: null, tracksQty, defaultUnit, active: true,
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await loadAll();
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+async function addOverheadChild(parentId) {
+  const parent = allOverheadCategories.find(x => x.id === parentId);
+  if (!parent) return;
+  const name = (prompt(`New sub-category under "${parent.name}":`) || '').trim();
+  if (!name) return;
+  if (overheadChildrenOf(parentId).some(x => (x.name || '').toLowerCase() === name.toLowerCase())) {
+    alert(`"${name}" already exists under ${parent.name}.`); return;
+  }
+  try {
+    await db.collection('overhead_categories').add({
+      name, type: parent.type, parent: parentId, tracksQty: false, defaultUnit: null, active: true,
+      createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await loadAll();
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+async function editOverheadCat(id) {
+  const cat = allOverheadCategories.find(x => x.id === id);
+  if (!cat) return;
+  const name = (prompt(`Rename "${cat.name}" to:`, cat.name) || '').trim();
+  if (!name) return;
+  const siblings = cat.parent ? overheadChildrenOf(cat.parent) : allOverheadCategories.filter(x => !x.parent);
+  if (siblings.some(x => x.id !== id && (x.name || '').toLowerCase() === name.toLowerCase())) {
+    alert('Another category already has this name.'); return;
+  }
+  const patch = { name };
+  // Quantity tracking only applies to top-level categories
+  if (!cat.parent) {
+    const tracksQty = confirm(`Track a quantity alongside the amount for "${name}"?\n\nCurrently: ${cat.tracksQty ? 'YES' : 'NO'}\n\nOK = yes, Cancel = no`);
+    patch.tracksQty = tracksQty;
+    patch.defaultUnit = tracksQty
+      ? ((prompt('Unit label:', cat.defaultUnit || '') || '').trim() || null)
+      : null;
+  }
+  try {
+    await db.collection('overhead_categories').doc(id).update(patch);
+    await loadAll();
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+async function toggleOverheadCatActive(id) {
+  const cat = allOverheadCategories.find(x => x.id === id);
+  if (!cat) return;
+  try {
+    await db.collection('overhead_categories').doc(id).update({ active: cat.active === false ? true : false });
+    await loadAll();
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+async function deleteOverheadCat(id) {
+  const cat = allOverheadCategories.find(x => x.id === id);
+  if (!cat) return;
+  const kids = overheadChildrenOf(id);
+  if (kids.length) { alert(`Cannot delete "${cat.name}" — it has ${kids.length} sub-categorie(s). Remove those first.`); return; }
+  const used = overheadUsageCount(id);
+  if (used > 0) { alert(`Cannot delete "${cat.name}" — ${used} overhead entrie(s) use it.\nDisable it instead to stop it appearing on new entries.`); return; }
+  if (!confirm(`Delete overhead category "${cat.name}"?`)) return;
+  try { await db.collection('overhead_categories').doc(id).delete(); await loadAll(); }
+  catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// ══════════════════════════════════════════════
 // BACKUP & RESTORE
 // ══════════════════════════════════════════════
-const BACKUP_COLLECTIONS = ['users','suppliers','skus','deals','deliveries','stock_opening','stock_issues','sub_categories','departments'];
+const BACKUP_COLLECTIONS = ['users','suppliers','skus','deals','deliveries','stock_opening','stock_issues','sub_categories','departments','overhead_categories','overheads'];
 
 // Firestore Timestamps don't survive JSON. Convert to {__ts: iso} markers on export,
 // and back to firebase Timestamps on restore.
@@ -4966,7 +5216,9 @@ window.addEventListener('appinstalled', () => {
     'repairOrphans','saveBulkDeal','saveDeal','saveEditDelivery','saveEditIssue',
     'saveOpeningStock','saveSku','saveSup','saveUser','submitBulkDelivery',
     'submitDelivery','submitIssue','restoreBackup',
-    'approveOne','rejectOne','approveAllPending'];
+    'approveOne','rejectOne','approveAllPending',
+    'addOverheadCat','addOverheadChild','editOverheadCat',
+    'toggleOverheadCatActive','deleteOverheadCat'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
