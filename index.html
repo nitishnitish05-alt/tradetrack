@@ -983,6 +983,7 @@
         <option value="Packaging Material">Packaging Material</option>
         <option value="Spices & Masala">Spices & Masala</option>
         <option value="Oil & Fat">Oil & Fat</option>
+        <option value="Fuel">Fuel</option>
         <option value="Other">Other</option>
       </select>
     </div>
@@ -1271,6 +1272,7 @@ const ADMIN_SECTIONS = [
       { id: 'stock-position',   label: 'Stock Position',    icon: '📊', panel: 'stock', stockSub: 'current' },
       { id: 'sku-ledger',       label: 'SKU Ledger',        icon: '📈', panel: 'stock', stockSub: 'ledger' },
       { id: 'issue-history',    label: 'Issue History',     icon: '📋', panel: 'stock', stockSub: 'issue-history' },
+      { id: 'fuel-take',        label: 'Fuel Stock-Take',   icon: '🔥', panel: 'stock', stockSub: 'fuel-take' },
       { id: 'set-opening',      label: 'Set Opening Stock', icon: '⚙',  panel: 'stock', stockSub: 'set-opening' },
     ]
   },
@@ -4564,8 +4566,152 @@ function renderStock(subTab, btn) {
   const el = document.getElementById('stock-content');
   if (subTab === 'current')       renderCurrentStock(el);
   if (subTab === 'set-opening')   renderSetOpening(el);
+  if (subTab === 'fuel-take')     renderFuelStockTake(el);
   if (subTab === 'issue-history') renderIssueHistory(el);
   if (subTab === 'ledger')        renderStockLedger(el);
+}
+
+// ── Fuel Stock-Take ──────────────────────────────────────────────
+// Coal and wood can't be issue-tracked daily (nobody weighs logs into a boiler), so
+// consumption is inferred periodically: count what's physically left, and the shortfall
+// against what the system thinks is there IS the consumption.
+//
+// Critically, this writes ONLY a stock_issues record — never a stock_opening.
+// calcStock() takes the latest opening as its baseline and then counts issues dated
+// on or after it, so writing both on the same day would deduct the consumption from a
+// freshly-reset balance and drive stock deeply negative.
+function fuelSkus() {
+  return allSkus.filter(s => (s.category || '') === 'Fuel')
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+function renderFuelStockTake(el) {
+  const fuels = fuelSkus();
+  if (!fuels.length) {
+    el.innerHTML = `<div class="alert alert-warn" style="display:block;">
+      No fuel SKUs yet. Create Coal and Wood under Master Data → SKUs with category <strong>Fuel</strong>,
+      set their opening stock, then record purchases as normal deals and deliveries.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="card" style="max-width:760px;padding:20px;">
+      <div style="font-size:12px;color:#64748b;margin-bottom:14px;line-height:1.6;">
+        Count what is physically left, on the day you count it. The difference against the system balance
+        is recorded as consumption for the period since the last count.
+      </div>
+      <div class="mfg"><label>Stock-take Date *</label><input type="date" id="fst-date" value="${today()}" onchange="renderFuelPreview()" /></div>
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;margin:14px 0 8px;">Physical closing stock</div>
+      ${fuels.map(f => {
+        const st = calcStock(f.id);
+        return `<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:160px;">
+            <div style="font-size:13px;font-weight:700;color:#334155;">${f.name}</div>
+            <div style="font-size:11px;color:#94a3b8;">System balance: ${fmtQ(st.closing)} ${f.unit||'kg'}</div>
+          </div>
+          <input type="number" id="fst-qty-${f.id}" placeholder="Counted ${f.unit||'kg'}" min="0" step="0.01"
+            style="width:170px;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;"
+            oninput="renderFuelPreview()" />
+        </div>`;
+      }).join('')}
+      <div id="fst-preview" style="margin-top:14px;"></div>
+      <div class="mfg" style="margin-top:12px;"><label>Notes</label><textarea id="fst-notes" rows="2" placeholder="Who counted, how measured, etc."></textarea></div>
+      <div id="fst-alert" class="alert" style="display:none;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-blue" onclick="saveFuelStockTake()">Save Stock-Take</button>
+      </div>
+    </div>`;
+  renderFuelPreview();
+}
+
+// What each fuel will record, given the counted quantities currently typed in
+function fuelTakeLines() {
+  const date = document.getElementById('fst-date')?.value || today();
+  return fuelSkus().map(f => {
+    const raw = document.getElementById(`fst-qty-${f.id}`)?.value;
+    if (raw === '' || raw == null) return null;
+    const physical = parseFloat(raw);
+    if (isNaN(physical) || physical < 0) return null;
+    const st = calcStock(f.id);
+    const diff = st.closing - physical;   // positive = consumed
+    // Days since the last stock-take on this SKU, for a per-day burn figure
+    const prior = allStockIssues
+      .filter(i => i.skuId === f.id && i.source === 'stock-take' && i.date < date)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+    const days = prior ? Math.max(daysBetween(prior.date, date) - 1, 1) : null;
+    return { sku: f, physical, system: st.closing, diff, days, since: prior ? prior.date : (st.baseDate !== '0000-00-00' ? st.baseDate : null) };
+  }).filter(Boolean);
+}
+
+function renderFuelPreview() {
+  const box = document.getElementById('fst-preview');
+  if (!box) return;
+  const lines = fuelTakeLines();
+  if (!lines.length) { box.innerHTML = ''; return; }
+  box.innerHTML = lines.map(l => {
+    const unit = l.sku.unit || 'kg';
+    if (Math.abs(l.diff) < 0.005) {
+      return `<div style="background:#f1f5f9;border-radius:8px;padding:9px 13px;margin-bottom:7px;font-size:12px;color:#475569;">
+        <strong>${l.sku.name}</strong> — counted matches the system exactly. Nothing will be recorded.</div>`;
+    }
+    if (l.diff < 0) {
+      return `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:8px;padding:9px 13px;margin-bottom:7px;font-size:12px;color:#92400e;">
+        ⚠ <strong>${l.sku.name}</strong> — counted ${fmtQ(l.physical)} ${unit} but system shows only ${fmtQ(l.system)} ${unit}.
+        This is a <strong>gain of ${fmtQ(Math.abs(l.diff))} ${unit}</strong>, usually an unrecorded delivery.
+        It will be recorded as a stock correction, not consumption.</div>`;
+    }
+    const perDay = l.days ? (l.diff / l.days) : null;
+    return `<div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:9px 13px;margin-bottom:7px;font-size:12px;color:#166534;">
+      <strong>${l.sku.name}</strong> — system ${fmtQ(l.system)} − counted ${fmtQ(l.physical)} =
+      <strong>${fmtQ(l.diff)} ${unit} consumed</strong>${l.since ? ` since ${fmtD(l.since)}` : ''}${perDay ? ` · ${fmtQ(perDay.toFixed(1))} ${unit}/day over ${l.days} days` : ''}.</div>`;
+  }).join('');
+}
+
+async function saveFuelStockTake() {
+  const alertEl = document.getElementById('fst-alert');
+  const show = (msg, warn) => { if(!alertEl) return; alertEl.className='alert '+(warn?'alert-warn':'alert-success'); alertEl.style.display='block'; alertEl.textContent=msg; };
+  const date = document.getElementById('fst-date').value;
+  const notes = document.getElementById('fst-notes').value.trim();
+  if (!date) { show('Please pick the stock-take date.', true); return; }
+  const lines = fuelTakeLines();
+  if (!lines.length) { show('Enter the counted quantity for at least one fuel.', true); return; }
+  const acting = lines.filter(l => Math.abs(l.diff) >= 0.005);
+  if (!acting.length) { show('Counted quantities match the system exactly — nothing to record.', true); return; }
+
+  const summary = acting.map(l => `  • ${l.sku.name}: ${l.diff > 0 ? fmtQ(l.diff) + ' ' + (l.sku.unit||'kg') + ' consumed' : fmtQ(Math.abs(l.diff)) + ' ' + (l.sku.unit||'kg') + ' gain (correction)'}`).join('\n');
+  if (!confirm(`Record this stock-take for ${fmtD(date)}?\n\n${summary}\n\nConsumption entries are generated, not typed — to change one, redo the stock-take.`)) return;
+
+  try {
+    const batch = db.batch();
+    acting.forEach(l => {
+      const unit = l.sku.unit || 'kg';
+      if (l.diff > 0) {
+        // Consumption. Issue only — see the note above renderFuelStockTake.
+        batch.set(db.collection('stock_issues').doc(), {
+          skuId: l.sku.id, skuName: l.sku.name, skuUnit: unit,
+          qty: Math.round(l.diff * 1000) / 1000, date,
+          notes: (notes ? notes + ' · ' : '') + 'Fuel stock-take — counted ' + fmtQ(l.physical) + ' ' + unit,
+          source: 'stock-take',
+          createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          ...(needsApproval() ? { approval: 'pending' } : {})
+        });
+      } else {
+        // Found more than expected — reset the baseline upward instead of a negative issue.
+        batch.set(db.collection('stock_opening').doc(), {
+          skuId: l.sku.id, skuName: l.sku.name, skuUnit: unit,
+          qty: l.physical, date,
+          notes: (notes ? notes + ' · ' : '') + 'Fuel stock-take correction — system showed ' + fmtQ(l.system) + ' ' + unit,
+          source: 'stock-take',
+          setBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    });
+    await batch.commit();
+    await loadAll();
+    renderStock('fuel-take');
+    const el2 = document.getElementById('fst-alert');
+    if (el2) { el2.className='alert alert-success'; el2.style.display='block';
+      el2.textContent = `✓ Stock-take saved for ${fmtD(date)} — ${acting.length} fuel${acting.length>1?'s':''} updated. Balances now match your physical count.`; }
+  } catch(e) { show(fmtFirebaseError(e), true); }
 }
 
 // Current Stock summary
@@ -4869,6 +5015,11 @@ async function submitIssue() {
 
 // Edit Issue
 function openEditIssue(id) {
+  const _si = allStockIssues.find(x => x.id === id) || (typeof pendingIssues !== 'undefined' ? pendingIssues.find(x => x.id === id) : null);
+  if (_si && _si.source === 'stock-take') {
+    alert('This entry was generated by a Fuel Stock-Take, not typed in.\n\nEditing it would leave the stock balance no longer matching your physical count. To correct it, delete this entry and redo the stock-take.');
+    return;
+  }
   const i = anyIssue(id);
   if (!i) return;
   document.getElementById('ei-id').value = id;
@@ -5950,7 +6101,7 @@ window.addEventListener('appinstalled', () => {
     'addOverheadCat','addOverheadChild','editOverheadCat',
     'toggleOverheadCatActive','deleteOverheadCat',
     'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead',
-    'deleteDuplicateRecord','approveAllOverheads'];
+    'deleteDuplicateRecord','approveAllOverheads','saveFuelStockTake'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
