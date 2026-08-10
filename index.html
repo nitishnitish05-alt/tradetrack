@@ -745,6 +745,16 @@
       </div>
 
       <!-- USERS -->
+      <!-- ACCOUNTS ENTRY OVERVIEW -->
+      <div class="panel" id="panel-acct-review">
+        <div class="content-inner">
+          <div class="ph">
+            <div><div class="ph-title">🧮 Accounts Review</div><div class="ph-sub">Overhead entries awaiting approval</div></div>
+          </div>
+          <div id="acct-review-content"></div>
+        </div>
+      </div>
+
       <!-- OVERHEADS: DAILY ENTRY -->
       <div class="panel" id="panel-oh-daily">
         <div class="content-inner">
@@ -1041,6 +1051,7 @@
     <div class="mfg"><label>Role *</label>
       <select id="um-role">
         <option value="operator">Operator</option>
+        <option value="accounts">Accounts (overhead entry only)</option>
         <option value="admin">Admin</option>
       </select>
     </div>
@@ -1129,7 +1140,11 @@ function isPending(r){ return r && r.approval === 'pending'; }
 function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=>d.id===id); }
 function anyDelivery(id){ return allDeliveries.find(d=>d.id===id) || pendingDeliveries.find(d=>d.id===id); }
 function anyIssue(id){ return allStockIssues.find(d=>d.id===id) || pendingIssues.find(d=>d.id===id); }
-function pendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length + pendingOverheads.length; }
+// Two separate review queues, so each panel badges only what it actually shows.
+function oprPendingCount(){ return pendingDeals.length + pendingDeliveries.length + pendingIssues.length; }
+function acctPendingCount(){ return pendingOverheads.length; }
+function pendingCount(){ return oprPendingCount() + acctPendingCount(); }
+function anyOverhead(id){ return allOverheads.find(o=>o.id===id) || pendingOverheads.find(o=>o.id===id); }
 // An operator may edit/delete ONLY their own still-pending deal. Everything an
 // admin has already approved is locked to them — they may only log entries against it.
 function canOprActOnDeal(deal){ return !!deal && isPending(deal) && deal.createdBy === CU.username; }
@@ -1227,13 +1242,24 @@ const ADMIN_SECTIONS = [
     ]
   },
   { id: 'opr-review',   icon: '🔍', label: 'Operator Review', panel: 'opr-review' },
+  { id: 'acct-review',  icon: '🧮', label: 'Accounts Review',  panel: 'acct-review' },
   { id: 'reports-main', icon: '🖨', label: 'Reports', panel: 'reports-main' },
   { id: 'users',        icon: '👥', label: 'Users',   panel: 'users' },
 ];
 // Populated in Phase 3 (Overheads entry screens). Empty until then — and the
 // 'accounts' role is deliberately NOT offered in the user modal yet, so nobody
 // can be created into an empty sidebar.
-const ACCOUNTS_SECTIONS = [];
+// Entry screens only. No Overhead Log, no reports, no dashboard — an accounts user
+// records costs but never sees totals or aggregates.
+const ACCOUNTS_SECTIONS = [
+  { id: 'overheads', icon: '💰', label: 'Overheads', panel: 'oh-daily',
+    subs: [
+      { id: 'oh-daily',  label: 'Daily Entry',  icon: '🧾', panel: 'oh-daily' },
+      { id: 'oh-period', label: 'Period Entry', icon: '📆', panel: 'oh-period' },
+      { id: 'oh-wages',  label: 'Daily Wages',  icon: '👷', panel: 'oh-wages' },
+    ]
+  },
+];
 
 // Single place that resolves role -> nav sections. Unknown/legacy roles fall back
 // to OPR_SECTIONS, preserving today's behaviour exactly.
@@ -1272,9 +1298,11 @@ function buildSidebar() {
   const sections = sectionsForRole();
   // Show a live count of items awaiting review next to the Operator Review tab
   try{
-    var _pc = isAdmin() ? pendingCount() : 0;
+    var _pc = isAdmin() ? oprPendingCount() : 0;
+    var _ac = isAdmin() ? acctPendingCount() : 0;
     sections.forEach(function(sc){
-      if(sc.id==='opr-review') sc.label = _pc ? ('Operator Review (' + _pc + ')') : 'Operator Review';
+      if(sc.id==='opr-review')  sc.label = _pc ? ('Operator Review (' + _pc + ')') : 'Operator Review';
+      if(sc.id==='acct-review') sc.label = _ac ? ('Accounts Review (' + _ac + ')') : 'Accounts Review';
     });
   }catch(e){}
   const nav = document.getElementById('sidebar-nav');
@@ -1373,6 +1401,7 @@ function triggerPanelRender(panelId, mode, stockSub) {
   else if (panelId === 'oh-period') renderOhPeriodForm();
   else if (panelId === 'oh-wages')  renderOhWagesForm();
   else if (panelId === 'oh-log')    renderOhLog();
+  else if (panelId === 'acct-review') renderAcctReview();
   else if (panelId === 'add-delivery') {
     setupDeliveryForm();
     if (mode === 'bulk') setDeliveryMode('bulk');
@@ -1469,7 +1498,7 @@ async function loadAll() {
     await backfillOverheadEntryModes();
     // Re-render current active section with fresh data
     if (currentSectionId) switchSection(currentSectionId);
-    else switchSection('dashboard');
+    else { const _s = sectionsForRole(); if (_s.length) switchSection(_s[0].id); }
   } catch(e) { alert('Failed to load data: ' + e.message); }
 }
 
@@ -5665,7 +5694,7 @@ window.addEventListener('appinstalled', () => {
     'addOverheadCat','addOverheadChild','editOverheadCat',
     'toggleOverheadCatActive','deleteOverheadCat',
     'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead',
-    'deleteDuplicateRecord'];
+    'deleteDuplicateRecord','approveAllOverheads'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
   var _lastBtn = null;
@@ -5974,7 +6003,15 @@ function renderOprReview(){
 }
 
 function _collFor(type){
-  return type==='deal' ? 'deals' : type==='delivery' ? 'deliveries' : 'stock_issues';
+  return type==='deal' ? 'deals' : type==='delivery' ? 'deliveries'
+       : type==='overhead' ? 'overheads' : 'stock_issues';
+}
+
+function _anyRec(type, id){
+  return type==='deal' ? anyDeal(id)
+       : type==='delivery' ? anyDelivery(id)
+       : type==='overhead' ? anyOverhead(id)
+       : anyIssue(id);
 }
 
 // Approving a delivery may change its deal's status — recalc after approval.
@@ -5984,8 +6021,89 @@ async function _postApprove(type, rec){
   }
 }
 
+// ══════════════════════════════════════════════
+// ACCOUNTS REVIEW — approve overhead entries
+// ══════════════════════════════════════════════
+function renderAcctReview(){
+  var el = document.getElementById('acct-review-content');
+  if(!el) return;
+  if(!isAdmin()){ el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+
+  if(!pendingOverheads.length){
+    el.innerHTML = '<div class="card" style="padding:30px;text-align:center;">' +
+      '<div style="font-size:34px;">✓</div>' +
+      '<div style="font-size:15px;font-weight:700;color:#16a34a;margin-top:8px;">Nothing awaiting review</div>' +
+      '<div style="font-size:13px;color:#64748b;margin-top:4px;">Overhead entries submitted by an accounts user will appear here.</div></div>';
+    return;
+  }
+
+  // Group by who entered them — you usually review one person's day in one go
+  var byUser = {};
+  pendingOverheads.forEach(function(o){ (byUser[o.createdBy||'?'] = byUser[o.createdBy||'?'] || []).push(o); });
+  var total = pendingOverheads.reduce(function(s,o){ return s + (o.amount||0); }, 0);
+
+  var h = '<div class="card" style="padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">' +
+    '<div><div style="font-size:13px;font-weight:700;color:#0f2044;">' + pendingOverheads.length +
+      ' entr' + (pendingOverheads.length===1?'y':'ies') + ' awaiting approval</div>' +
+    '<div style="font-size:12px;color:#64748b;">Worth ₹' + fmtN(Math.round(total)) +
+      ' · excluded from every cost figure until approved</div></div>' +
+    '<button class="btn btn-blue btn-sm" onclick="approveAllOverheads()">✓ Approve All</button></div>';
+
+  Object.keys(byUser).sort().forEach(function(user){
+    var rows = byUser[user].slice().sort(function(a,b){ return (b.dateFrom||'').localeCompare(a.dateFrom||''); });
+    var sub = rows.reduce(function(s,o){ return s + (o.amount||0); }, 0);
+    h += '<div class="card" style="margin-bottom:16px;">' +
+      '<div style="padding:12px 16px;background:#f8fafc;border-bottom:2px solid #e8edf3;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+        '<div style="font-size:13px;font-weight:800;color:#0f2044;">Entered by ' + user + '</div>' +
+        '<div style="font-size:12px;color:#475569;">' + rows.length + ' entr' + (rows.length===1?'y':'ies') +
+          ' · <strong>₹' + fmtN(Math.round(sub)) + '</strong></div>' +
+      '</div><div class="tbl-wrap"><table><thead><tr>' +
+      '<th>Period</th><th>Category</th><th>Qty</th><th>Amount</th><th>Notes</th><th>Actions</th>' +
+      '</tr></thead><tbody>';
+    rows.forEach(function(o){
+      var cat = getOverheadCat(o.categoryId);
+      var path = cat.parent ? getOverheadCat(cat.parent).name + ' › ' + cat.name : cat.name;
+      var days = daysBetween(o.dateFrom, o.dateTo);
+      var span = (o.dateFrom === o.dateTo) ? fmtD(o.dateFrom) : fmtD(o.dateFrom) + ' → ' + fmtD(o.dateTo);
+      // Flag anything a category can't be resolved for — approving it would hide the cost
+      var unknownCat = !allOverheadCategories.some(function(x){ return x.id === o.categoryId; });
+      h += '<tr>' +
+        '<td>' + span + (days > 1 ? '<div style="font-size:10px;color:#94a3b8;">' + days + ' days · ₹' +
+            fmtN(((o.amount||0)/days).toFixed(2)) + '/day</div>' : '') + '</td>' +
+        '<td><strong>' + path + '</strong>' +
+          (unknownCat ? '<div style="font-size:10px;color:#dc2626;font-weight:700;">⚠ category no longer exists</div>' : '') + '</td>' +
+        '<td>' + (o.qty != null ? fmtQ(o.qty) + (o.unit ? ' ' + o.unit : '') : '—') + '</td>' +
+        '<td><strong>₹' + fmtN(Math.round(o.amount||0)) + '</strong></td>' +
+        '<td style="font-size:12px;color:#64748b;">' + (o.notes || '—') + '</td>' +
+        '<td style="white-space:nowrap;">' +
+          '<button class="btn btn-sm" style="background:#16a34a;color:white;border:none;" onclick="approveOne(\'overhead\',\'' + o.id + '\')">✓ OK</button> ' +
+          '<button class="btn btn-sm btn-red" onclick="rejectOne(\'overhead\',\'' + o.id + '\')">✕ Reject</button>' +
+        '</td></tr>';
+    });
+    h += '</tbody></table></div></div>';
+  });
+  el.innerHTML = h;
+}
+
+async function approveAllOverheads(){
+  if(!pendingOverheads.length) return;
+  var total = pendingOverheads.reduce(function(s,o){ return s + (o.amount||0); }, 0);
+  if(!confirm('Approve all ' + pendingOverheads.length + ' overhead entr' +
+     (pendingOverheads.length===1?'y':'ies') + ' worth ₹' + fmtN(Math.round(total)) +
+     '?\n\nThey will immediately count towards overhead totals and cost-per-kg.')) return;
+  try{
+    var stamp = { approval:'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() };
+    var batch = db.batch();
+    pendingOverheads.forEach(function(o){ batch.update(db.collection('overheads').doc(o.id), stamp); });
+    await batch.commit();
+    var n = pendingOverheads.length;
+    await loadAll();
+    alert('✓ Approved ' + n + ' overhead entr' + (n===1?'y':'ies') + '.');
+  }catch(e){ alert(fmtFirebaseError(e)); }
+}
+
 async function approveOne(type, id){
-  var rec = type==='deal' ? anyDeal(id) : type==='delivery' ? anyDelivery(id) : anyIssue(id);
+  var rec = _anyRec(type, id);
   if(!rec) return;
   // A delivery cannot go live while the deal it belongs to is still pending.
   if(type==='delivery' && rec.dealId){
@@ -6006,7 +6124,7 @@ async function approveOne(type, id){
 }
 
 async function rejectOne(type, id){
-  var rec = type==='deal' ? anyDeal(id) : type==='delivery' ? anyDelivery(id) : anyIssue(id);
+  var rec = _anyRec(type, id);
   if(!rec) return;
   if(type==='deal'){
     var childDels = pendingDeliveries.filter(function(d){ return d.dealId === id; });
