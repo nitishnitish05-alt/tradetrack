@@ -602,10 +602,20 @@
               </div>
               <div id="dd-info" style="display:none;"></div>
               <div class="mfg"><label>Delivery Date</label><input type="date" id="dd-date"/></div>
-              <div class="mfg"><label>Quantity Received</label><input type="number" id="dd-qty" placeholder="Enter quantity" min="0.01" step="0.01"/></div>
+              <div class="mfg"><label>Quantity Received</label><input type="number" id="dd-qty" placeholder="Enter quantity" min="0.01" step="0.01" oninput="onDdFreight()"/></div>
               <div class="mfg">
                 <label>Actual Rate (₹) — leave blank if same as deal rate</label>
-                <input type="number" id="dd-actual-rate" placeholder="Leave blank if same as contracted rate" min="0" step="0.01"/>
+                <input type="number" id="dd-actual-rate" placeholder="Leave blank if same as contracted rate" min="0" step="0.01" oninput="onDdFreight()"/>
+              </div>
+              <div class="mfg"><label>Inward Freight (₹)</label>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                  <input type="number" id="dd-freight" placeholder="0 if none" min="0" step="0.01" style="flex:1;min-width:140px;" oninput="onDdFreight()" />
+                  <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;font-weight:600;cursor:pointer;white-space:nowrap;">
+                    <input type="checkbox" id="dd-freight-incl" onchange="onDdFreight()" style="width:auto;margin:0;" />
+                    Already included in rate
+                  </label>
+                </div>
+                <div id="dd-landed" style="font-size:12px;font-weight:700;color:#1565c0;margin-top:6px;display:none;"></div>
               </div>
               <div class="mfg"><label>Notes (Vehicle No., Bill No., etc.)</label><textarea id="dd-notes" rows="2" placeholder="e.g. Bill No. 1042, Vehicle HR-23-AB-1234"></textarea></div>
               <div id="dd-alert" style="display:none;"></div>
@@ -626,6 +636,17 @@
               <div id="bd-rows-wrap" style="display:none;">
                 <div style="font-size:12px;font-weight:700;color:#0f2044;margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px;">Open Deals — enter qty received (leave blank to skip)</div>
                 <div id="bd-rows"></div>
+                <div class="mfg" style="margin-top:14px;padding-top:14px;border-top:2px solid #f1f5f9;">
+                  <label>Inward Freight for this load (₹)</label>
+                  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <input type="number" id="bd-freight" placeholder="Total freight for the whole truck — 0 if none" min="0" step="0.01" style="flex:1;min-width:200px;" oninput="onBdFreight()" />
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;font-weight:600;cursor:pointer;white-space:nowrap;">
+                      <input type="checkbox" id="bd-freight-incl" onchange="onBdFreight()" style="width:auto;margin:0;" />
+                      Already included in rates
+                    </label>
+                  </div>
+                  <div id="bd-freight-note" style="font-size:12px;color:#1565c0;font-weight:600;margin-top:6px;display:none;"></div>
+                </div>
                 <div id="bd-alert" style="display:none;"></div>
                 <button class="btn btn-green btn-lg" style="width:100%;margin-top:8px;" onclick="submitBulkDelivery()">✓ Record All Deliveries</button>
               </div>
@@ -681,7 +702,7 @@
             <button class="btn btn-outline btn-sm" onclick="clearHistFilters()">Clear</button>
           </div>
           <div class="card"><div class="tbl-wrap"><table>
-            <thead><tr><th>Date</th><th>Type</th><th>Supplier / Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Deal Rate</th><th>Actual Rate</th><th>By</th><th id="hist-th-actions"></th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Supplier / Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Deal Rate</th><th>Freight</th><th>Actual Rate</th><th>By</th><th id="hist-th-actions"></th></tr></thead>
             <tbody id="hist-tbody"></tbody>
           </table></div></div>
         </div>
@@ -1072,6 +1093,15 @@
     <div class="mfg"><label>Actual Rate (₹) — leave blank if billed at contracted rate</label>
       <input type="number" id="edm-actual-rate" placeholder="Leave blank if same as contracted rate" min="0" step="0.01" oninput="updateEdmVariance()" />
       <div id="edm-var-hint" style="font-size:12px;font-weight:700;margin-top:6px;display:none;"></div>
+    </div>
+    <div class="mfg"><label>Inward Freight (₹)</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <input type="number" id="edm-freight" placeholder="0 if none" min="0" step="0.01" style="flex:1;min-width:130px;" oninput="updateEdmVariance()" />
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;font-weight:600;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" id="edm-freight-incl" onchange="updateEdmVariance()" style="width:auto;margin:0;" />
+          Included in rate
+        </label>
+      </div>
     </div>
     <div class="mfg"><label>Notes</label><textarea id="edm-notes" rows="2" placeholder="Bill No., Vehicle No., etc."></textarea></div>
     <div class="modal-actions">
@@ -2304,6 +2334,8 @@ function viewDeal(id) {
         const varies  = d.actualRate != null && d.actualRate !== deal.rate;
         const lineVal = Math.round(d.qty * effRate);
         const diff    = varies ? Math.round((d.actualRate - deal.rate) * d.qty) : 0;
+        const frt     = (!d.freightIncluded && d.freightAmount > 0) ? d.freightAmount : 0;
+        const landed  = frt > 0 ? deliveryLandedRate(d, deal.rate) : null;
         return `
         <div class="dl-item">
           <div class="dl-dot" ${varies ? 'style="background:#dc2626;"' : ''}></div>
@@ -2311,6 +2343,7 @@ function viewDeal(id) {
             <div class="dl-item-main">${fmtD(d.deliveryDate)} — <span style="color:#16a34a;">+${fmtQ(d.qty)} ${sku.unit||'kg'}</span>
               <span style="color:#94a3b8;font-weight:400;font-size:12px;">(₹${fmtN(lineVal)})</span>
               ${varies ? `<span style="color:#dc2626;font-weight:700;font-size:12px;margin-left:6px;">@ ₹${fmtN(d.actualRate)} ⚠ ${diff > 0 ? '+' : '−'}₹${fmtN(Math.abs(diff))}</span>` : ''}
+              ${landed != null ? `<span style="color:#7c3aed;font-weight:700;font-size:12px;margin-left:6px;">🚚 +₹${fmtN(Math.round(frt))} freight → landed ₹${fmtN(landed.toFixed(2))}/${sku.unit||'kg'}</span>` : ''}
             </div>
             <div class="dl-item-sub">${d.notes || 'No notes'} · By ${d.createdBy || '—'}</div>
           </div>
@@ -3549,6 +3582,30 @@ function onDealSel() {
   `;
 }
 
+// Landed rate = what the material actually costs you once freight is added.
+// Freight already baked into the supplier's rate must NOT be added again.
+function landedRate(qty, effRate, freightAmount, freightIncluded) {
+  const q = parseFloat(qty) || 0;
+  const r = parseFloat(effRate) || 0;
+  const f = (freightIncluded ? 0 : (parseFloat(freightAmount) || 0));
+  if (q <= 0) return r;
+  return r + (f / q);
+}
+function onDdFreight() {
+  const box = document.getElementById('dd-landed');
+  if (!box) return;
+  const deal = allDeals.find(d => d.id === document.getElementById('dd-sel').value);
+  const qty = parseFloat(document.getElementById('dd-qty').value);
+  const ar = parseFloat(document.getElementById('dd-actual-rate').value);
+  const freight = parseFloat(document.getElementById('dd-freight').value);
+  const incl = document.getElementById('dd-freight-incl').checked;
+  if (!deal || !qty || qty <= 0 || isNaN(freight) || freight <= 0 || incl) { box.style.display = 'none'; return; }
+  const eff = !isNaN(ar) ? ar : deal.rate;
+  const unit = getSku(deal.skuId).unit || 'kg';
+  box.style.display = 'block';
+  box.textContent = `Landed cost ₹${fmtN(landedRate(qty, eff, freight, false).toFixed(2))}/${unit} — ₹${fmtN(eff)} material + ₹${fmtN((freight/qty).toFixed(2))} freight.`;
+}
+
 async function submitDelivery() {
   const dealId = document.getElementById('dd-sel').value;
   const deliveryDate = document.getElementById('dd-date').value;
@@ -3556,6 +3613,10 @@ async function submitDelivery() {
   const notes = document.getElementById('dd-notes').value.trim();
   const actualRateRaw = document.getElementById('dd-actual-rate').value;
   const actualRate = actualRateRaw === '' ? null : parseFloat(actualRateRaw);
+  const freightRaw = document.getElementById('dd-freight').value;
+  const freightAmount = freightRaw === '' ? null : parseFloat(freightRaw);
+  const freightIncluded = document.getElementById('dd-freight-incl').checked;
+  if (freightAmount !== null && (isNaN(freightAmount) || freightAmount < 0)) { showAlert('error', 'Freight must be a valid number.'); return; }
   if (actualRate !== null && (isNaN(actualRate) || actualRate < 0)) { showAlert('error', 'Actual rate must be a valid number.'); return; }
   if (!dealId) { showAlert('error', 'Please select a deal.'); return; }
   if (!deliveryDate) { showAlert('error', 'Please select a delivery date.'); return; }
@@ -3595,6 +3656,8 @@ async function submitDelivery() {
       skuUnit: sku.unit || 'kg',
       dealRate: deal.rate,
       actualRate: actualRate,
+      freightAmount: freightAmount,
+      freightIncluded: !!freightIncluded,
       createdBy: CU.username,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       ...(needsApproval() ? { approval: 'pending' } : {})
@@ -3610,6 +3673,9 @@ async function submitDelivery() {
     showAlert('success', `✓ Delivery of ${fmtQ(qty)} ${sku.unit||'kg'} recorded successfully!${newStatus === 'FULFILLED' ? ' Deal is now FULFILLED.' : newStatus === 'OVERFULFILLED' ? ' ⚠ Deal marked OVERFULFILLED.' : ''}${varNote}`);
     document.getElementById('dd-qty').value = '';
     document.getElementById('dd-actual-rate').value = '';
+    document.getElementById('dd-freight').value = '';
+    document.getElementById('dd-freight-incl').checked = false;
+    const _lb = document.getElementById('dd-landed'); if (_lb) _lb.style.display = 'none';
     document.getElementById('dd-notes').value = '';
     document.getElementById('dd-info').style.display = 'none';
     await loadAll();
@@ -3790,6 +3856,42 @@ function markRateVariance(input, dealRate) {
   input.style.fontWeight  = differs ? '700' : '';
 }
 
+// One freight charge covers the whole truck, so it is apportioned across the filled
+// rows in proportion to each line's value — the standard way freight is absorbed.
+function bulkFreightSplit() {
+  const total = parseFloat(document.getElementById('bd-freight')?.value);
+  const incl  = document.getElementById('bd-freight-incl')?.checked;
+  const out = { total: (isNaN(total) ? 0 : total), included: !!incl, lines: [], lineValue: 0 };
+  const supId = document.getElementById('bd-sup')?.value;
+  if (!supId) return out;
+  // Same set the rows were rendered from: this supplier's open deals plus closed ones
+  const deals = allDeals.filter(d => d.supplierId === supId &&
+    (d.status === 'OPEN' || d.status === 'FULFILLED' || d.status === 'OVERFULFILLED'));
+  deals.forEach(deal => {
+    const qty = parseFloat(document.getElementById(`bdr-qty-${deal.id}`)?.value);
+    if (isNaN(qty) || qty <= 0) return;
+    const ar = parseFloat(document.getElementById(`bdr-actual-${deal.id}`)?.value);
+    const rate = !isNaN(ar) ? ar : (deal.rate || 0);
+    const value = qty * rate;
+    out.lines.push({ dealId: deal.id, qty, value });
+    out.lineValue += value;
+  });
+  out.lines.forEach(l => {
+    l.freight = (out.included || out.total <= 0 || out.lineValue <= 0)
+      ? 0
+      : out.total * (l.value / out.lineValue);
+  });
+  return out;
+}
+function onBdFreight() {
+  const box = document.getElementById('bd-freight-note');
+  if (!box) return;
+  const s = bulkFreightSplit();
+  if (s.included || s.total <= 0 || !s.lines.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.textContent = `₹${fmtN(Math.round(s.total))} apportioned across ${s.lines.length} line${s.lines.length>1?'s':''} by value — adds roughly ₹${fmtN((s.total / Math.max(s.lineValue,1) * 100).toFixed(2))} per ₹100 of material.`;
+}
+
 async function submitBulkDelivery() {
   const supId  = document.getElementById('bd-sup').value;
   const date   = document.getElementById('bd-date').value;
@@ -3803,6 +3905,9 @@ async function submitBulkDelivery() {
     alertEl.style.display = 'block';
     return;
   }
+
+  // Freight for the whole load, apportioned by line value
+  const _bdFreight = bulkFreightSplit();
 
   // Collect filled rows
   const entries = [];
@@ -3843,9 +3948,12 @@ async function submitBulkDelivery() {
       const sku = getSku(deal.skuId);
       const delRef = db.collection('deliveries').doc();
       const rowActualRate = parseFloat(document.getElementById(`bdr-actual-${dealId}`)?.value)||null;
+      const _fs = _bdFreight.lines.find(l => l.dealId === dealId);
       batch.set(delRef, {
         dealId, deliveryDate: date, qty,
         actualRate: rowActualRate,
+      freightAmount: _fs && _fs.freight > 0 ? Math.round(_fs.freight * 100) / 100 : null,
+      freightIncluded: _bdFreight.included,
         notes: notes || commonNotes,
         supplierName: sup.name,
         skuId: deal.skuId,
@@ -3935,6 +4043,7 @@ function renderHistory() {
         skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
         skuCat: resolvedSku?.category || '—',
         qty: d.qty, rate: d.dealRate, actualRate: d.actualRate || null,
+        freight: (!d.freightIncluded && d.freightAmount > 0) ? d.freightAmount : 0,
         notes: d.notes, by: d.createdBy,
         id: d.id, srcType: 'delivery'
       });
@@ -3971,7 +4080,7 @@ function renderHistory() {
 
   const tbody = document.getElementById('hist-tbody');
   if (!movements.length) {
-    tbody.innerHTML = emptyRow(9, 'No records found for selected filters');
+    tbody.innerHTML = emptyRow(11, 'No records found for selected filters');
     return;
   }
   tbody.innerHTML = movements.map(m => `<tr>
@@ -3984,6 +4093,7 @@ function renderHistory() {
     <td><span style="font-size:11px;background:#f1f5f9;padding:2px 8px;border-radius:6px;">${m.skuCat}</span></td>
     <td><strong>${fmtQ(m.qty)} ${m.skuUnit}</strong></td>
     <td>${m.rate != null ? `<span style="color:#1565c0;font-weight:700;">₹${fmtN(m.rate)}</span>` : '—'}</td>
+    <td>${m.freight > 0 ? `<span style="color:#7c3aed;font-weight:700;">₹${fmtN(Math.round(m.freight))}</span>` : '—'}</td>
     <td>${m.actualRate && m.actualRate !== m.rate
       ? `<span style="color:#dc2626;font-weight:700;">₹${fmtN(m.actualRate)} ⚠</span>`
       : (m.type === 'inward' ? '<span style="color:#94a3b8;font-size:11px;">Same</span>' : '—')}</td>
@@ -4020,7 +4130,7 @@ function printHistory() {
       <div><h1>TradeTrack – Movement History</h1><p>${typeLabel}${dateLabel} · Generated by ${CU?.username||'—'}</p></div>
       <div style="font-size:10px;color:#777;">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</div>
     </div>
-    <table><thead><tr><th>Date</th><th>Type</th><th>Supplier/Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Rate</th><th>By</th></tr></thead>
+    <table><thead><tr><th>Date</th><th>Type</th><th>Supplier/Notes</th><th>SKU</th><th>Category</th><th>Qty</th><th>Deal Rate</th><th>Freight</th><th>Actual Rate</th><th>By</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="footer">TradeTrack · Maruti Namkeen Procurement</div>
   </body></html>`;
@@ -4051,6 +4161,8 @@ function openEditDelivery(id) {
   document.getElementById('edm-date').value = d.deliveryDate;
   document.getElementById('edm-qty').value = d.qty;
   document.getElementById('edm-actual-rate').value = (d.actualRate != null ? d.actualRate : '');
+  document.getElementById('edm-freight').value = (d.freightAmount != null ? d.freightAmount : '');
+  document.getElementById('edm-freight-incl').checked = !!d.freightIncluded;
   document.getElementById('edm-notes').value = d.notes || '';
   // Info box — include the deal this delivery belongs to
   const parentDeal = anyDeal(d.dealId);
@@ -4080,6 +4192,12 @@ function updateEdmVariance() {
   hint.textContent = `⚠ ${diff > 0 ? 'Over' : 'Under'} contracted rate by ₹${fmtN(Math.abs(diff))}/${d.skuUnit||'kg'} — impact ${diff > 0 ? '+' : '−'}₹${fmtN(Math.abs(impact))} on this delivery.`;
 }
 
+// Landed cost on a saved delivery record (material + freight, unless freight was in the rate)
+function deliveryLandedRate(d, dealRate) {
+  const eff = (d.actualRate != null ? d.actualRate : (d.dealRate != null ? d.dealRate : dealRate)) || 0;
+  return landedRate(d.qty, eff, d.freightAmount, d.freightIncluded);
+}
+
 async function saveEditDelivery() {
   const id = document.getElementById('edm-id').value;
   const dealId = document.getElementById('edm-deal-id').value;
@@ -4088,10 +4206,14 @@ async function saveEditDelivery() {
   const notes = document.getElementById('edm-notes').value.trim();
   const arRaw = document.getElementById('edm-actual-rate').value;
   const actualRate = arRaw === '' ? null : parseFloat(arRaw);
+  const frRaw = document.getElementById('edm-freight').value;
+  const freightAmount = frRaw === '' ? null : parseFloat(frRaw);
+  const freightIncluded = document.getElementById('edm-freight-incl').checked;
+  if (freightAmount !== null && (isNaN(freightAmount) || freightAmount < 0)) { alert('Freight must be a valid number.'); return; }
   if (actualRate !== null && (isNaN(actualRate) || actualRate < 0)) { alert('Actual rate must be a valid number.'); return; }
   if (!deliveryDate || !qty || qty <= 0) { alert('Please fill delivery date and quantity.'); return; }
   try {
-    await db.collection('deliveries').doc(id).update({ deliveryDate, qty, notes, actualRate, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: CU.username });
+    await db.collection('deliveries').doc(id).update({ deliveryDate, qty, notes, actualRate, freightAmount, freightIncluded, updatedAt: firebase.firestore.FieldValue.serverTimestamp(), updatedBy: CU.username });
     await recalcDealStatus(dealId);
     closeOverlay('modal-edit-delivery');
     await loadAll();
