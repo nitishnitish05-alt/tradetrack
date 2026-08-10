@@ -800,6 +800,17 @@
         </div>
       </div>
 
+      <!-- OVERHEADS: FREIGHT REGISTER -->
+      <div class="panel" id="panel-oh-freight">
+        <div class="content-inner">
+          <div class="ph">
+            <div><div class="ph-title">🚚 Freight Register</div><div class="ph-sub">Inward freight recorded on deliveries — already inside material cost</div></div>
+            <button class="btn btn-outline" onclick="printFreightRegister()">🖨 Print</button>
+          </div>
+          <div id="oh-freight-content"></div>
+        </div>
+      </div>
+
       <!-- OVERHEADS: LOG -->
       <div class="panel" id="panel-oh-log">
         <div class="content-inner">
@@ -1268,6 +1279,7 @@ const ADMIN_SECTIONS = [
       { id: 'oh-daily',  label: 'Daily Entry',  icon: '🧾', panel: 'oh-daily' },
       { id: 'oh-period', label: 'Period Entry', icon: '📆', panel: 'oh-period' },
       { id: 'oh-wages',  label: 'Daily Wages',  icon: '👷', panel: 'oh-wages' },
+      { id: 'oh-freight',label: 'Freight Register', icon: '🚚', panel: 'oh-freight' },
       { id: 'oh-log',    label: 'Overhead Log', icon: '📚', panel: 'oh-log' },
     ]
   },
@@ -1431,6 +1443,7 @@ function triggerPanelRender(panelId, mode, stockSub) {
   else if (panelId === 'oh-period') renderOhPeriodForm();
   else if (panelId === 'oh-wages')  renderOhWagesForm();
   else if (panelId === 'oh-log')    renderOhLog();
+  else if (panelId === 'oh-freight') renderFreightRegister();
   else if (panelId === 'acct-review') renderAcctReview();
   else if (panelId === 'add-delivery') {
     setupDeliveryForm();
@@ -3306,6 +3319,116 @@ async function saveOhWages() {
   } catch(e) { ohSavedToast(alertEl, fmtFirebaseError(e), true); }
 }
 
+// ── Freight Register (admin only — read-only view of delivery freight) ──
+// Freight lives on the delivery record, so it is already inside each material's landed
+// cost. This register exists for review only — it is NOT part of the overhead total,
+// and entering it again as an overhead would double-count it.
+let frFrom = '', frTo = '', frSup = 'all', frSku = 'all', frSort = 'date';
+
+function freightRows() {
+  return allDeliveries
+    .filter(d => (d.freightAmount || 0) > 0)
+    .filter(d => !frFrom || (d.deliveryDate || '') >= frFrom)
+    .filter(d => !frTo   || (d.deliveryDate || '') <= frTo)
+    .filter(d => frSup === 'all' || (d.supplierName || '—') === frSup)
+    .filter(d => frSku === 'all' || (d.skuName || '—') === frSku)
+    .map(d => ({
+      ...d,
+      perUnit: (d.qty > 0) ? (d.freightAmount / d.qty) : 0,
+      added: !d.freightIncluded
+    }))
+    .sort((a, b) => {
+      if (frSort === 'supplier') return (a.supplierName||'').localeCompare(b.supplierName||'') || (b.deliveryDate||'').localeCompare(a.deliveryDate||'');
+      if (frSort === 'sku')      return (a.skuName||'').localeCompare(b.skuName||'') || (b.deliveryDate||'').localeCompare(a.deliveryDate||'');
+      if (frSort === 'amount')   return (b.freightAmount||0) - (a.freightAmount||0);
+      if (frSort === 'perunit')  return (b.perUnit||0) - (a.perUnit||0);
+      return (b.deliveryDate||'').localeCompare(a.deliveryDate||'');
+    });
+}
+
+function renderFreightRegister() {
+  const el = document.getElementById('oh-freight-content');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+  if (!frFrom) { const d = new Date(); d.setDate(d.getDate() - 30); frFrom = d.toISOString().slice(0,10); }
+  if (!frTo) frTo = today();
+
+  const withFreight = allDeliveries.filter(d => (d.freightAmount || 0) > 0);
+  const sups = [...new Set(withFreight.map(d => d.supplierName || '—'))].sort();
+  const skus = [...new Set(withFreight.map(d => d.skuName || '—'))].sort();
+  const sel = (id, cur, list, onch) =>
+    `<select id="${id}" onchange="${onch}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;max-width:220px;">
+      <option value="all">All</option>
+      ${list.map(v => `<option value="${v.replace(/"/g,'&quot;')}" ${v===cur?'selected':''}>${v}</option>`).join('')}
+    </select>`;
+
+  el.innerHTML = `
+    <div class="sticky-filters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding-top:10px;">
+      <div><div class="rpt-filter-label">From</div><input type="date" id="fr-from" value="${frFrom}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <div><div class="rpt-filter-label">To</div><input type="date" id="fr-to" value="${frTo}" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;" /></div>
+      <div><div class="rpt-filter-label">Supplier</div>${sel('fr-sup', frSup, sups, "frSup=this.value;renderFreightTable();")}</div>
+      <div><div class="rpt-filter-label">SKU</div>${sel('fr-sku', frSku, skus, "frSku=this.value;renderFreightTable();")}</div>
+      <button class="btn btn-blue btn-sm" onclick="frFrom=document.getElementById('fr-from').value;frTo=document.getElementById('fr-to').value;renderFreightTable();">Apply</button>
+      <button class="btn btn-outline btn-sm" onclick="frFrom='';frTo='';frSup='all';frSku='all';frSort='date';renderFreightRegister();">↺ Reset</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;" id="fr-sort-bar">
+      <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">Sort:</span>
+      ${[['date','Date'],['supplier','Supplier'],['sku','SKU'],['amount','₹ Amount'],['perunit','₹ per unit']]
+        .map(([k,l]) => `<button class="ftab ${frSort===k?'active':''}" onclick="frSort='${k}';renderFreightTable();">${l}</button>`).join('')}
+    </div>
+    <div id="fr-body"></div>`;
+  renderFreightTable();
+}
+
+function renderFreightTable() {
+  const body = document.getElementById('fr-body');
+  if (!body) return;
+  document.querySelectorAll('#fr-sort-bar .ftab').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes("'" + frSort + "'"));
+  });
+  const rows = freightRows();
+  const paid = rows.filter(r => r.added).reduce((s, r) => s + (r.freightAmount || 0), 0);
+  const inRate = rows.filter(r => !r.added).reduce((s, r) => s + (r.freightAmount || 0), 0);
+
+  body.innerHTML = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+      <div class="card" style="flex:1;min-width:200px;padding:16px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Freight paid separately</div>
+        <div style="font-size:24px;font-weight:800;color:#7c3aed;margin-top:4px;">₹${fmtN(Math.round(paid))}</div>
+        <div style="font-size:12px;color:#64748b;">${rows.filter(r=>r.added).length} deliveries</div>
+      </div>
+      <div class="card" style="flex:1;min-width:200px;padding:16px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;">Recorded but inside rate</div>
+        <div style="font-size:24px;font-weight:800;color:#94a3b8;margin-top:4px;">₹${fmtN(Math.round(inRate))}</div>
+        <div style="font-size:12px;color:#64748b;">${rows.filter(r=>!r.added).length} deliveries · not an extra cost</div>
+      </div>
+    </div>
+    <div style="background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#5b21b6;">
+      ℹ These amounts are <strong>already inside each material's landed cost</strong>. They are deliberately excluded from the Overhead Log total — do not re-enter them as an overhead, or the cost per kg will be counted twice.
+    </div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <thead><tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Qty</th><th>Freight</th><th>₹ / unit</th><th>Basis</th><th>Notes</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${fmtD(r.deliveryDate)}</td>
+        <td><strong>${r.supplierName || '—'}</strong></td>
+        <td>${r.skuName || '—'}</td>
+        <td>${fmtQ(r.qty)} ${r.skuUnit || 'kg'}</td>
+        <td><strong style="color:${r.added ? '#7c3aed' : '#94a3b8'};">₹${fmtN(Math.round(r.freightAmount||0))}</strong></td>
+        <td>${r.perUnit > 0 ? '₹' + fmtN(r.perUnit.toFixed(2)) : '—'}</td>
+        <td>${r.added
+          ? '<span class="badge" style="background:#f5f3ff;color:#7c3aed;">Paid separately</span>'
+          : '<span class="badge" style="background:#f1f5f9;color:#64748b;">Inside rate</span>'}</td>
+        <td style="font-size:12px;color:#64748b;">${r.notes || '—'}</td>
+      </tr>`).join('') || emptyRow(8, 'No freight recorded in this period')}</tbody>
+    </table></div></div>`;
+}
+
+function printFreightRegister() {
+  const rows = document.querySelector('#fr-body tbody')?.innerHTML || '';
+  printReport_generic(`Freight Register — ${fmtD(frFrom)} to ${fmtD(frTo)}`,
+    '<tr><th>Date</th><th>Supplier</th><th>SKU</th><th>Qty</th><th>Freight</th><th>₹ / unit</th><th>Basis</th><th>Notes</th></tr>', rows);
+}
+
 // ── Overhead Log (admin only — shows totals) ──
 let ohLogFrom = '', ohLogTo = '';
 function renderOhLog() {
@@ -3355,6 +3478,17 @@ function renderOhLogTable() {
         ${summary || '<div style="font-size:13px;color:#94a3b8;">Nothing recorded in this period.</div>'}
       </div>
     </div>
+    ${(() => {
+      const frt = allDeliveries
+        .filter(d => (d.freightAmount || 0) > 0 && !d.freightIncluded)
+        .filter(d => (d.deliveryDate || '') >= ohLogFrom && (d.deliveryDate || '') <= ohLogTo)
+        .reduce((s, d) => s + (d.freightAmount || 0), 0);
+      if (frt <= 0) return '';
+      return `<div style="background:#f5f3ff;border:1.5px solid #ddd6fe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#5b21b6;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <span>🚚 <strong>₹${fmtN(Math.round(frt))}</strong> inward freight in this period — already inside material cost, deliberately <strong>not</strong> in the total above. Do not enter it as an overhead.</span>
+        <button class="btn btn-sm btn-outline" onclick="switchSection('overheads','oh-freight')">View Freight Register</button>
+      </div>`;
+    })()}
     <div class="card"><div class="tbl-wrap"><table>
       <thead><tr><th>Period</th><th>Category</th><th>Qty</th><th>Amount</th><th>Notes</th><th>By</th><th>Actions</th></tr></thead>
       <tbody>${rows.map(o => {
