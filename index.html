@@ -567,6 +567,7 @@
               <button class="btn btn-outline" onclick="findSimilarSkus()">🔍 Find Similar</button>
               <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge</button>
               <button class="btn btn-outline" onclick="repairOrphans()" title="Find records pointing to deleted SKUs and reassign by name match">🔧 Repair Orphans</button>
+              <button class="btn btn-outline" onclick="repairDealRates()" title="Find deliveries still holding an old contracted rate after the deal was corrected">💱 Fix Deal Rates</button>
               <button class="btn btn-outline" onclick="autoSuggestAllReorderLevels()" title="Calculate suggested reorder levels based on consumption history">⚡ Auto-suggest Reorder</button>
               <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
             </div>
@@ -1037,6 +1038,29 @@
 </div>
 
 <!-- Opening Stock Modal -->
+<div class="overlay" id="modal-edit-overhead">
+  <div class="modal">
+    <div class="modal-title">✏ Edit Overhead Entry</div>
+    <input type="hidden" id="eoh-id" />
+    <div class="mfg"><label>Category *</label><select id="eoh-cat" onchange="onEohCat()"></select></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="mfg" style="flex:1;min-width:150px;"><label>From *</label><input type="date" id="eoh-from" onchange="onEohSpread()" /></div>
+      <div class="mfg" style="flex:1;min-width:150px;"><label>To *</label><input type="date" id="eoh-to" onchange="onEohSpread()" /></div>
+    </div>
+    <div class="mfg" id="eoh-qty-wrap" style="display:none;"><label id="eoh-qty-label">Quantity</label>
+      <input type="number" id="eoh-qty" placeholder="Optional" min="0" step="0.01" /></div>
+    <div class="mfg"><label>Amount (₹) *</label>
+      <input type="number" id="eoh-amt" min="0" step="0.01" oninput="onEohSpread()" /></div>
+    <div id="eoh-spread" style="display:none;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:12px;color:#1e40af;font-weight:600;"></div>
+    <div class="mfg"><label>Notes</label><textarea id="eoh-notes" rows="2"></textarea></div>
+    <div id="eoh-alert" class="alert" style="display:none;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeOverlay('modal-edit-overhead')">Cancel</button>
+      <button class="btn btn-blue" onclick="saveEditOverhead()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="modal-opening">
   <div class="modal">
     <div class="modal-title">⚙ Set Opening Stock</div>
@@ -2218,10 +2242,55 @@ async function saveDeal() {
   }
   if (needsApproval()) { data.approval = 'pending'; }
   try {
-    if (id) { await db.collection('deals').doc(id).update(data); }
+    if (id) {
+      const before = anyDeal(id);
+      const rateChanged = before && Number(before.rate) !== Number(rate);
+      await db.collection('deals').doc(id).update(data);
+      // Deliveries carry dealRate as a snapshot taken when they were entered. Correcting
+      // the contracted rate must flow through to them, or they keep quoting the old figure
+      // and every downstream cost calculation inherits it.
+      if (rateChanged) {
+        const dels = allDeliveries.concat(typeof pendingDeliveries !== 'undefined' ? pendingDeliveries : [])
+          .filter(d => d.dealId === id);
+        if (dels.length) {
+          const batch = db.batch();
+          dels.forEach(d => batch.update(db.collection('deliveries').doc(d.id), { dealRate: rate }));
+          await batch.commit();
+        }
+      }
+    }
     else { await db.collection('deals').add({ ...data, createdBy: CU.username, createdAt: firebase.firestore.FieldValue.serverTimestamp() }); }
     closeOverlay('modal-deal');
     await loadAll();
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// Existing deliveries saved before the fix above still hold a stale dealRate.
+// Finds and corrects every delivery whose snapshot disagrees with its deal.
+async function repairDealRates() {
+  const all = allDeliveries.concat(typeof pendingDeliveries !== 'undefined' ? pendingDeliveries : []);
+  const bad = all.filter(d => {
+    const deal = anyDeal(d.dealId);
+    return deal && d.dealRate != null && Number(d.dealRate) !== Number(deal.rate);
+  });
+  if (!bad.length) { alert('✅ Every delivery already matches its deal rate — nothing to correct.'); return; }
+  const preview = bad.slice(0, 6).map(d => {
+    const deal = anyDeal(d.dealId);
+    return `  • ${fmtD(d.deliveryDate)} ${d.skuName || ''} — ₹${fmtN(d.dealRate)} → ₹${fmtN(deal.rate)}`;
+  }).join('\n');
+  if (!confirm(`${bad.length} delivery(s) hold an out-of-date contracted rate:\n\n${preview}` +
+    (bad.length > 6 ? `\n  ... and ${bad.length - 6} more` : '') +
+    `\n\nUpdate them to match their deal? Actual rates and quantities are untouched.`)) return;
+  try {
+    for (let i = 0; i < bad.length; i += 400) {
+      const batch = db.batch();
+      bad.slice(i, i + 400).forEach(d => {
+        batch.update(db.collection('deliveries').doc(d.id), { dealRate: anyDeal(d.dealId).rate });
+      });
+      await batch.commit();
+    }
+    await loadAll();
+    alert(`✅ Corrected ${bad.length} delivery(s).`);
   } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
@@ -3505,11 +3574,88 @@ function renderOhLogTable() {
           <td><strong>₹${fmtN(Math.round(o.amount || 0))}</strong></td>
           <td style="font-size:12px;color:#64748b;">${o.notes || '—'}</td>
           <td style="font-size:12px;">${o.createdBy || '—'}</td>
-          <td><button class="btn btn-sm btn-red" onclick="deleteOverhead('${o.id}')">Del</button></td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-sm btn-outline" onclick="openEditOverhead('${o.id}')">✏ Edit</button>
+            <button class="btn btn-sm btn-red" onclick="deleteOverhead('${o.id}')">Del</button></td>
         </tr>`;
       }).join('') || emptyRow(7, 'No overhead entries in this period')}</tbody>
     </table></div></div>`;
 }
+// Editing keeps the entry's own id, so nothing downstream loses track of it — unlike
+// delete-and-recreate, which was the only route before.
+function openEditOverhead(id){
+  const o = allOverheads.find(x => x.id === id) ||
+            (typeof pendingOverheads !== 'undefined' ? pendingOverheads.find(x => x.id === id) : null);
+  if (!o) return;
+  document.getElementById('eoh-id').value = o.id;
+  // Offer every selectable category, whichever screen it normally belongs to, so a
+  // mis-filed entry can be moved without deleting it.
+  const cats = selectableOverheadCats();
+  const cur = getOverheadCat(o.categoryId);
+  const curPath = cur.parent ? `${getOverheadCat(cur.parent).name} › ${cur.name}` : cur.name;
+  const known = cats.some(x => x.id === o.categoryId);
+  document.getElementById('eoh-cat').innerHTML =
+    (known ? '' : `<option value="${o.categoryId}" selected>${curPath} (current)</option>`) +
+    cats.map(x => `<option value="${x.id}" ${x.id === o.categoryId ? 'selected' : ''}>${x.path}</option>`).join('');
+  document.getElementById('eoh-from').value = o.dateFrom || '';
+  document.getElementById('eoh-to').value = o.dateTo || o.dateFrom || '';
+  document.getElementById('eoh-amt').value = (o.amount != null ? o.amount : '');
+  document.getElementById('eoh-qty').value = (o.qty != null ? o.qty : '');
+  document.getElementById('eoh-notes').value = o.notes || '';
+  const al = document.getElementById('eoh-alert'); if (al) al.style.display = 'none';
+  onEohCat(); onEohSpread();
+  openOverlay('modal-edit-overhead');
+}
+function onEohCat(){
+  const cat = getOverheadCat(document.getElementById('eoh-cat').value);
+  const parent = cat.parent ? getOverheadCat(cat.parent) : null;
+  const tracks = cat.tracksQty || (parent && parent.tracksQty);
+  const unit = cat.defaultUnit || (parent && parent.defaultUnit) || '';
+  const wrap = document.getElementById('eoh-qty-wrap');
+  if (wrap) wrap.style.display = tracks ? '' : 'none';
+  const lbl = document.getElementById('eoh-qty-label');
+  if (lbl) lbl.textContent = 'Quantity' + (unit ? ` (${unit})` : '');
+}
+function onEohSpread(){
+  const box = document.getElementById('eoh-spread'); if (!box) return;
+  const f = document.getElementById('eoh-from').value, t = document.getElementById('eoh-to').value;
+  const amt = parseFloat(document.getElementById('eoh-amt').value);
+  const days = daysBetween(f, t);
+  if (!f || !t || days <= 1 || isNaN(amt) || amt <= 0) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.textContent = `Spreads as ₹${fmtN((amt/days).toFixed(2))} per day across ${days} days (${fmtD(f)} → ${fmtD(t)}).`;
+}
+async function saveEditOverhead(){
+  const alertEl = document.getElementById('eoh-alert');
+  const id = document.getElementById('eoh-id').value;
+  const categoryId = document.getElementById('eoh-cat').value;
+  const dateFrom = document.getElementById('eoh-from').value;
+  const dateTo = document.getElementById('eoh-to').value || dateFrom;
+  const amount = parseFloat(document.getElementById('eoh-amt').value);
+  const qtyRaw = document.getElementById('eoh-qty').value;
+  const notes = document.getElementById('eoh-notes').value.trim();
+  if (!id || !categoryId || !dateFrom || isNaN(amount) || amount < 0) {
+    ohSavedToast(alertEl, 'Please fill category, date and a valid amount.', true); return;
+  }
+  if (daysBetween(dateFrom, dateTo) <= 0) { ohSavedToast(alertEl, '"To" must be on or after "From".', true); return; }
+  const cat = getOverheadCat(categoryId);
+  const parent = cat.parent ? getOverheadCat(cat.parent) : null;
+  const unit = cat.defaultUnit || (parent && parent.defaultUnit) || null;
+  try {
+    await db.collection('overheads').doc(id).update({
+      categoryId, type: cat.type || 'variable',
+      amount, dateFrom, dateTo,
+      qty: qtyRaw === '' ? null : parseFloat(qtyRaw),
+      unit: qtyRaw === '' ? null : unit,
+      notes,
+      updatedBy: CU.username, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    closeOverlay('modal-edit-overhead');
+    await loadAll();
+    renderOhLog();
+  } catch(e) { ohSavedToast(alertEl, fmtFirebaseError(e), true); }
+}
+
 async function deleteOverhead(id) {
   const o = allOverheads.find(x => x.id === id) || pendingOverheads.find(x => x.id === id);
   if (!o) return;
@@ -4178,7 +4324,9 @@ function renderHistory() {
         supplier: d.supplierName || '—',
         skuName: d.skuName || '—', skuUnit: d.skuUnit || 'kg',
         skuCat: resolvedSku?.category || '—',
-        qty: d.qty, rate: d.dealRate, actualRate: d.actualRate || null,
+        // live deal rate wins over the delivery's snapshot, which can lag a correction
+        qty: d.qty, rate: ((anyDeal(d.dealId)||{}).rate != null ? anyDeal(d.dealId).rate : d.dealRate),
+        actualRate: d.actualRate || null,
         freight: (!d.freightIncluded && d.freightAmount > 0) ? d.freightAmount : 0,
         notes: d.notes, by: d.createdBy,
         id: d.id, srcType: 'delivery'
@@ -5316,6 +5464,7 @@ function initKeyboard() {
       if (document.getElementById('modal-opening').classList.contains('open'))   { saveOpeningStock(); return; }
       if (document.getElementById('modal-edit-delivery').classList.contains('open')) { saveEditDelivery(); return; }
       if (document.getElementById('modal-edit-issue').classList.contains('open'))    { saveEditIssue(); return; }
+      if (document.getElementById('modal-edit-overhead').classList.contains('open')) { saveEditOverhead(); return; }
     }
 
     // Alt shortcuts (only when no modal open and user is logged in)
@@ -6100,7 +6249,7 @@ window.addEventListener('appinstalled', () => {
     'approveOne','rejectOne','approveAllPending',
     'addOverheadCat','addOverheadChild','editOverheadCat',
     'toggleOverheadCatActive','deleteOverheadCat',
-    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead',
+    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead','saveEditOverhead','repairDealRates',
     'deleteDuplicateRecord','approveAllOverheads','saveFuelStockTake'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
@@ -6337,7 +6486,8 @@ function renderOprReview(){
       dealLine = '⚠ Deal not found — this delivery has no valid contract linked';
     }
     // Rate variance against the contracted rate
-    var contracted = (pd ? pd.rate : v.dealRate);
+    // Prefer the deal's live rate — a delivery's snapshot can lag a correction
+  var contracted = (pd ? pd.rate : v.dealRate);
     var varLine = '';
     if (v.actualRate != null && contracted != null && v.actualRate !== contracted) {
       var diff = (v.actualRate - contracted) * (v.qty || 0);
@@ -6347,7 +6497,7 @@ function renderOprReview(){
     items.push({ type:'delivery', id:v.id, by:v.createdBy||'?', date:v.deliveryDate,
       title:'Delivery · ' + (v.supplierName||'?') + ' — ' + (v.skuName||'?'),
       detail: fmtQ(v.qty) + ' ' + unit +
-              (v.actualRate != null ? ' @ ₹' + fmtN(v.actualRate) : (v.dealRate != null ? ' @ ₹' + fmtN(v.dealRate) : '')) +
+              (v.actualRate != null ? ' @ ₹' + fmtN(v.actualRate) : (contracted != null ? ' @ ₹' + fmtN(contracted) : '')) +
               varLine +
               (v.notes ? ' · ' + v.notes : ''),
       sub: dealLine,
