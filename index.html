@@ -397,6 +397,11 @@
   @media (max-width:768px){
     #bd-rows{max-height:min(46vh,420px);}
   }
+  /* Operator Review bulk bar: pinned flush to the top of the scrolling area (offset = its top padding) */
+  #opr-selbar{top:-22px;}
+  @media (min-width:769px) and (max-width:1180px){ #opr-selbar{top:-20px;} }
+  @media (min-width:540px) and (max-width:768px){ #opr-selbar{top:-20px;} }
+  @media (max-width:539px){ #opr-selbar{top:-14px;} }
 
   </style>
 </head>
@@ -526,12 +531,12 @@
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
             <div class="deals-search-wrap" style="flex:1;min-width:160px;">
-              <input type="text" id="deals-sku-search" class="deals-search-input" placeholder="🔍 Search SKU..." autocomplete="off" oninput="onDealsSearch();showDealsSearchDrop('sku');" onfocus="showDealsSearchDrop('sku')"/>
+              <input type="text" id="deals-sku-search" class="deals-search-input" placeholder="🔍 Search SKU..." autocomplete="off" oninput="_debounce('deals', onDealsSearch);showDealsSearchDrop('sku');" onfocus="showDealsSearchDrop('sku')"/>
               <button class="deals-search-clear" id="deals-sku-clear" onclick="clearDealsSearch('sku')" style="display:none;">×</button>
               <div class="deals-search-drop" id="deals-sku-drop"></div>
             </div>
             <div class="deals-search-wrap" style="flex:1;min-width:160px;">
-              <input type="text" id="deals-sup-search" class="deals-search-input" placeholder="🔍 Search Supplier..." autocomplete="off" oninput="onDealsSearch();showDealsSearchDrop('sup');" onfocus="showDealsSearchDrop('sup')"/>
+              <input type="text" id="deals-sup-search" class="deals-search-input" placeholder="🔍 Search Supplier..." autocomplete="off" oninput="_debounce('deals', onDealsSearch);showDealsSearchDrop('sup');" onfocus="showDealsSearchDrop('sup')"/>
               <button class="deals-search-clear" id="deals-sup-clear" onclick="clearDealsSearch('sup')" style="display:none;">×</button>
               <div class="deals-search-drop" id="deals-sup-drop"></div>
             </div>
@@ -568,6 +573,7 @@
               <button class="btn btn-outline" onclick="openMergeSkuModal()">🔀 Merge</button>
               <button class="btn btn-outline" onclick="repairOrphans()" title="Find records pointing to deleted SKUs and reassign by name match">🔧 Repair Orphans</button>
               <button class="btn btn-outline" onclick="repairDealRates()" title="Find deliveries still holding an old contracted rate after the deal was corrected">💱 Fix Deal Rates</button>
+              <button class="btn btn-outline" onclick="repairStaleNames()" title="Find past records still showing a SKU's or supplier's old name after a rename">🏷 Fix Stale Names</button>
               <button class="btn btn-outline" onclick="autoSuggestAllReorderLevels()" title="Calculate suggested reorder levels based on consumption history">⚡ Auto-suggest Reorder</button>
               <button class="btn btn-blue" onclick="openSkuModal()">+ Add SKU</button>
             </div>
@@ -699,7 +705,7 @@
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end;">
             <div><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">From</div><input type="date" id="hist-from" onchange="renderHistory()" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;"/></div>
             <div><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">To</div><input type="date" id="hist-to" onchange="renderHistory()" style="padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;"/></div>
-            <div style="flex:1;min-width:150px;"><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">SKU</div><input type="text" id="hist-sku-filter" placeholder="Filter by SKU..." oninput="renderHistory()" style="width:100%;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;"/></div>
+            <div style="flex:1;min-width:150px;"><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">SKU</div><input type="text" id="hist-sku-filter" placeholder="Filter by SKU..." oninput="_debounce('hist', renderHistory)" style="width:100%;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;"/></div>
             <button class="btn btn-outline btn-sm" onclick="clearHistFilters()">Clear</button>
           </div>
           <div class="card"><div class="tbl-wrap"><table>
@@ -1203,7 +1209,13 @@ function isOpr(){ return !!CU && CU.role !== 'admin' && CU.role !== 'accounts'; 
 function needsApproval(){ return !!CU && CU.role !== 'admin'; }
 function isPending(r){ return r && r.approval === 'pending'; }
 // Lookups that must also see pending records (edit modals, review tab)
-function anyDeal(id){ return allDeals.find(d=>d.id===id) || pendingDeals.find(d=>d.id===id); }
+function anyDeal(id){
+  // allDeals first, then pendingDeals — the same precedence as the original find() || find()
+  const m = _memo('anyDeal', [allDeals, pendingDeals], () => {
+    const x = _byId(allDeals); pendingDeals.forEach(d => { if (!x.has(d.id)) x.set(d.id, d); }); return x;
+  });
+  return m.get(id);
+}
 function anyDelivery(id){ return allDeliveries.find(d=>d.id===id) || pendingDeliveries.find(d=>d.id===id); }
 function anyIssue(id){ return allStockIssues.find(d=>d.id===id) || pendingIssues.find(d=>d.id===id); }
 // Two separate review queues, so each panel badges only what it actually shows.
@@ -1265,6 +1277,8 @@ function togglePw() {
 }
 
 function doLogout() {
+  _stopLive();                  // the next user's listeners start clean, with their own approval split
+  _livePaused = false;
   CU = null;
   sessionStorage.removeItem('tt_user');
   document.getElementById('app').style.display = 'none';
@@ -1406,6 +1420,8 @@ function switchSection(sectionId, subId) {
   const sections = sectionsForRole();
   const sec = sections.find(s => s.id === sectionId);
   if (!sec) return;
+  const _scr = _screenKey(sec, subId);
+  if (_scr !== _showAllScreen) { _showAll = {}; _showAllScreen = _scr; }
   currentSectionId = sectionId;
 
   // Update sidebar + mobile nav active states
@@ -1508,78 +1524,274 @@ async function initApp() {
   await loadAll();
 }
 
+// ══════════════════════════════════════════════
+// LIVE SYNC
+// Data downloads once at login; after that Firestore listeners send only the documents that
+// actually change. Before this, every save, approval and delete re-downloaded every collection
+// (≈8,300 documents and growing daily) before the screen came back.
+//
+// loadAll() keeps its name and its contract — "make the data current and redraw the screen" —
+// so its callers are unchanged. The first call attaches the listeners and waits for the initial
+// data. Every later call just redraws: Firestore delivers a local write to the listeners before
+// the write's own promise resolves, so by the time a caller reaches loadAll() the data already
+// holds its change.
+//
+// Other people's changes update the data and the review counts but never redraw the screen you
+// are working on (that could wipe a half-filled form or move a button under your cursor). They
+// appear the next time you switch screens or save.
+//
+// Listeners pause after the tab has been hidden for 5 minutes or idle for 30, and resume with
+// one fresh download when you come back — a screen left on overnight can't run up reads.
+// Resuming updates the data and the counts but does not redraw the screen either.
+//
+// A first answer that comes from this device's cache rather than the server is not used: after a
+// pause, or with the connection down, that cache can be empty or partial. The data already held
+// stays in place until the server answers.
+// ══════════════════════════════════════════════
+const LIVE_QUERIES = [
+  ['suppliers',           () => db.collection('suppliers').orderBy('name')],
+  ['skus',                () => db.collection('skus').orderBy('name')],
+  ['deals',               () => db.collection('deals').orderBy('createdAt', 'desc')],
+  ['deliveries',          () => db.collection('deliveries').orderBy('createdAt', 'desc')],
+  ['users',               () => db.collection('users').orderBy('username')],
+  ['stock_opening',       () => db.collection('stock_opening').orderBy('date', 'desc')],
+  ['stock_issues',        () => db.collection('stock_issues').orderBy('date', 'desc')],
+  ['sub_categories',      () => db.collection('sub_categories').orderBy('name')],
+  ['departments',         () => db.collection('departments').orderBy('name')],
+  ['overhead_categories', () => db.collection('overhead_categories').orderBy('name')],
+  ['overheads',           () => db.collection('overheads').orderBy('dateFrom', 'desc')]
+];
+const LIVE_HIDDEN_PAUSE_MS = 5 * 60 * 1000;
+const LIVE_IDLE_PAUSE_MS   = 30 * 60 * 1000;
+let _live = null;               // { unsubs, loaded, ready, broken }
+let _livePaused = false;
+let _liveResuming = null;
+let _liveLastActive = Date.now();
+let _liveHiddenTimer = null;
+let _liveBadgeTimer = null;
+
+// Exactly the assignments and approval split the old full reload made, one collection at a time.
+// Admin: live arrays exclude pending. Operator: sees own pending as working data
+// (they must be able to deliver against a deal they just created).
+function _applyLive(col, rows) {
+  switch (col) {
+    case 'suppliers': allSuppliers = rows; break;
+    case 'skus':      allSkus = rows; break;
+    case 'users':     allUsers = rows; break;
+    case 'stock_opening':       allStockOpening = rows; break;
+    case 'sub_categories':      allSubCategories = rows; break;
+    case 'departments':         allDepartments = rows; break;
+    case 'overhead_categories': allOverheadCategories = rows; break;
+    case 'deals':
+      if (isOpr()) { allDeals = rows.filter(d => !isPending(d) || d.createdBy === CU.username); pendingDeals = []; }
+      else { allDeals = rows.filter(d => !isPending(d)); pendingDeals = rows.filter(isPending); }
+      break;
+    case 'deliveries':
+      if (isOpr()) { allDeliveries = rows.filter(d => !isPending(d) || d.createdBy === CU.username); pendingDeliveries = []; }
+      else { allDeliveries = rows.filter(d => !isPending(d)); pendingDeliveries = rows.filter(isPending); }
+      break;
+    case 'stock_issues':
+      if (isOpr()) { allStockIssues = rows.filter(d => !isPending(d) || d.createdBy === CU.username); pendingIssues = []; }
+      else { allStockIssues = rows.filter(d => !isPending(d)); pendingIssues = rows.filter(isPending); }
+      break;
+    case 'overheads':
+      // Same approval split as deals/deliveries/issues: pending entries are held out of
+      // allOverheads so they can never reach a cost calculation before being approved.
+      if (isOpr() || isAccounts()) { allOverheads = rows.filter(o => !isPending(o) || o.createdBy === CU.username); pendingOverheads = []; }
+      else { allOverheads = rows.filter(o => !isPending(o)); pendingOverheads = rows.filter(o => isPending(o)); }
+      break;
+  }
+}
+
+function _startLive() {
+  _stopLive();
+  const st = { unsubs: [], loaded: new Set(), broken: false, settled: false };
+  _live = st;
+  _livePaused = false;
+  st.ready = new Promise((resolve, reject) => {
+    st.resolve = () => { if (!st.settled) { st.settled = true; resolve(); } };
+    st.reject = err => { if (!st.settled) { st.settled = true; reject(err); } };
+  });
+  st.ready.catch(() => {});                              // a stop nobody was waiting on is not an error
+  LIVE_QUERIES.forEach(([col, query]) => {
+    // includeMetadataChanges: also hear the server confirming a result that first came from the
+    // cache, even when nothing in it changed (otherwise an empty list would never confirm).
+    const un = query().onSnapshot({ includeMetadataChanges: true }, snap => {
+      if (_live !== st) return;                          // late event from a stopped session
+      const first = !st.loaded.has(col);
+      // Not trusted as a first answer: this device's cache (can be empty after a pause or offline).
+      if (first && snap.metadata.fromCache) return;
+      // Afterwards, skip snapshots where only metadata changed (e.g. a save confirmed by the server).
+      if (!first && !snap.docChanges().length) return;
+      // 'estimate' gives a just-saved document a local createdAt instead of null until
+      // the server's timestamp arrives a moment later.
+      _applyLive(col, snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) })));
+      if (first) {
+        st.loaded.add(col);
+        if (st.loaded.size === LIVE_QUERIES.length) st.resolve();
+      } else {
+        _liveChanged();
+      }
+    }, err => {
+      console.warn('Live sync stopped for ' + col + ':', err);
+      st.broken = true;                                  // next loadAll() starts afresh
+      st.reject(err);
+    });
+    st.unsubs.push(un);
+  });
+  return st.ready;
+}
+function _stopLive() {
+  if (!_live) return;
+  const st = _live;
+  _live = null;
+  st.unsubs.forEach(u => { try { u(); } catch (e) {} });
+  // Release anything still waiting for this session's first download — it would wait forever
+  st.reject(Object.assign(new Error('Live sync stopped'), { code: 'live-stopped' }));
+}
+
+// Review counts beside Operator Review / Accounts Review, kept current as entries arrive.
+function _refreshReviewBadges() {
+  try {
+    if (!CU || !isAdmin()) return;
+    const pc = oprPendingCount(), ac = acctPendingCount();
+    const want = { 'opr-review': pc ? 'Operator Review (' + pc + ')' : 'Operator Review',
+                   'acct-review': ac ? 'Accounts Review (' + ac + ')' : 'Accounts Review' };
+    sectionsForRole().forEach(sc => { if (want[sc.id]) sc.label = want[sc.id]; });
+    Object.keys(want).forEach(id => {
+      const el = document.querySelector('.snav-item[data-section="' + id + '"]');
+      if (!el) return;
+      const lbl = el.querySelector('.snav-label');
+      if (lbl && lbl.textContent !== want[id]) lbl.textContent = want[id];
+      el.dataset.tooltip = want[id];
+    });
+  } catch (e) {}
+}
+function _liveChanged() {
+  clearTimeout(_liveBadgeTimer);
+  _liveBadgeTimer = setTimeout(_refreshReviewBadges, 250);
+}
+
+function _redrawKeepingScroll() {
+  if (!currentSectionId) return;
+  const sc = document.querySelector('.panel.active .content-inner');
+  const top = sc ? sc.scrollTop : 0;
+  switchSection(currentSectionId);
+  const sc2 = document.querySelector('.panel.active .content-inner');
+  if (sc2) sc2.scrollTop = top;
+}
+
+function _pauseLive() {
+  if (!_live || _livePaused) return;
+  _stopLive();
+  _livePaused = true;
+}
+function _resumeLive() {
+  if (!_livePaused || !CU || _liveResuming) return;
+  _liveResuming = _startLive().then(() => {
+    _liveResuming = null;
+    // Counts only. The screen is not redrawn under you — that could clear a half-filled form;
+    // the fresh data shows on your next screen switch or save.
+    _refreshReviewBadges();
+  }, err => {
+    _liveResuming = null;
+    if (err && err.code === 'live-stopped') return;      // paused again or logged out meanwhile
+    _livePaused = true;                                  // try again on the next interaction
+    console.warn('Live sync could not resume:', err);
+  });
+}
+['mousedown', 'keydown', 'touchstart', 'wheel'].forEach(ev => document.addEventListener(ev, () => {
+  _liveLastActive = Date.now();
+  if (_livePaused && !document.hidden) _resumeLive();
+}, { passive: true, capture: true }));
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(_liveHiddenTimer);
+  if (document.hidden) {
+    _liveHiddenTimer = setTimeout(_pauseLive, LIVE_HIDDEN_PAUSE_MS);
+  } else {
+    _liveLastActive = Date.now();
+    if (_livePaused) _resumeLive();
+  }
+});
+setInterval(() => {
+  if (_live && !_livePaused && Date.now() - _liveLastActive > LIVE_IDLE_PAUSE_MS) _pauseLive();
+}, 60 * 1000);
+
 async function loadAll() {
   try {
-    const [sSnap, skSnap, dSnap, delSnap, uSnap, soSnap, siSnap, scSnap, dpSnap, ocSnap, ohSnap] = await Promise.all([
-      db.collection('suppliers').orderBy('name').get(),
-      db.collection('skus').orderBy('name').get(),
-      db.collection('deals').orderBy('createdAt', 'desc').get(),
-      db.collection('deliveries').orderBy('createdAt', 'desc').get(),
-      db.collection('users').orderBy('username').get(),
-      db.collection('stock_opening').orderBy('date', 'desc').get(),
-      db.collection('stock_issues').orderBy('date', 'desc').get(),
-      db.collection('sub_categories').orderBy('name').get(),
-      db.collection('departments').orderBy('name').get(),
-      db.collection('overhead_categories').orderBy('name').get(),
-      db.collection('overheads').orderBy('dateFrom', 'desc').get()
-    ]);
-    allSuppliers    = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allSkus         = skSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const rawDeals      = dSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const rawDeliveries = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Admin: live arrays exclude pending. Operator: sees own pending as working data
-    // (they must be able to deliver against a deal they just created).
-    if (isOpr()) {
-      allDeals      = rawDeals.filter(d => !isPending(d) || d.createdBy === CU.username);
-      allDeliveries = rawDeliveries.filter(d => !isPending(d) || d.createdBy === CU.username);
-      pendingDeals = []; pendingDeliveries = [];
+    if (!_live || _live.broken || _livePaused) {
+      await _startLive();                                // one full download
     } else {
-      allDeals      = rawDeals.filter(d => !isPending(d));
-      allDeliveries = rawDeliveries.filter(d => !isPending(d));
-      pendingDeals      = rawDeals.filter(isPending);
-      pendingDeliveries = rawDeliveries.filter(isPending);
-    }
-    allUsers        = uSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allStockOpening = soSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const rawIssues = siSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (isOpr()) {
-      allStockIssues = rawIssues.filter(d => !isPending(d) || d.createdBy === CU.username);
-      pendingIssues = [];
-    } else {
-      allStockIssues = rawIssues.filter(d => !isPending(d));
-      pendingIssues  = rawIssues.filter(isPending);
-    }
-    allSubCategories = scSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allDepartments   = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allOverheadCategories = ocSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Same approval split as deals/deliveries/issues: pending entries are held out of
-    // allOverheads so they can never reach a cost calculation before being approved.
-    const _oh = ohSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (isOpr() || isAccounts()) {
-      allOverheads     = _oh.filter(o => !isPending(o) || o.createdBy === CU.username);
-      pendingOverheads = [];
-    } else {
-      allOverheads     = _oh.filter(o => !isPending(o));
-      pendingOverheads = _oh.filter(o => isPending(o));
+      await _live.ready;
+      await new Promise(r => setTimeout(r, 0));          // let any queued snapshot land first
     }
     await seedDepartmentsIfEmpty();
     await seedOverheadCategoriesIfEmpty();
     await backfillOverheadEntryModes();
-    // Re-render current active section with fresh data
-    if (currentSectionId) switchSection(currentSectionId);
+    _refreshReviewBadges();
+    // Re-render current active section with fresh data, staying where you were scrolled
+    if (currentSectionId) _redrawKeepingScroll();
     else { const _s = sectionsForRole(); if (_s.length) switchSection(_s[0].id); }
-  } catch(e) { alert('Failed to load data: ' + e.message); }
+  } catch(e) {
+    if (e && e.code === 'live-stopped') return;          // logged out or paused while waiting: nothing to redraw
+    alert('Failed to load data: ' + e.message);
+  }
 }
 
 // ══════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════
-function fmtN(n) { return Number(n||0).toLocaleString('en-IN'); }
-function fmtQ(n) { return Number(n||0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
-function fmtD(d) { if (!d) return '—'; try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch(e) { return d; } }
+// Number formatting reuses one formatter instead of building a new one per call —
+// ECMA-402 defines toLocaleString(locale, opts) as exactly this, so the output is identical.
+const _NF_N = new Intl.NumberFormat('en-IN');
+const _NF_Q = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 });
+function fmtN(n) { return _NF_N.format(Number(n||0)); }
+function fmtQ(n) { return _NF_Q.format(Number(n||0)); }
+// Dates repeat thousands of times in the big tables, so each distinct date string is
+// formatted once (by the original expression) and remembered for the session.
+const _fmtDCache = new Map();
+function fmtD(d) {
+  if (!d) return '—';
+  const key = typeof d === 'string' ? d : null;
+  if (key !== null && _fmtDCache.has(key)) return _fmtDCache.get(key);
+  let r;
+  try { r = new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch(e) { r = d; }
+  if (key !== null) _fmtDCache.set(key, r);
+  return r;
+}
 function today() { return new Date().toISOString().slice(0, 10); }
-function getSup(id) { return allSuppliers.find(s => s.id === id) || { name: '—' }; }
-function getSku(id) { return allSkus.find(s => s.id === id) || { name: '—', unit: 'kg', category: '—' }; }
+// ══════════════════════════════════════════════
+// LOOKUP INDEXES
+// The data arrays are only ever replaced wholesale — never pushed to or spliced — so an index
+// stays valid for exactly as long as the arrays it was built from are the same objects with the
+// same lengths. Each lookup returns precisely what the original linear scan returned (same
+// record, same order, same sums in the same addition order); it just stops rescanning
+// thousands of records for every row of every table.
+// ══════════════════════════════════════════════
+const _IDX = {};
+function _memo(key, arrs, build) {
+  const c = _IDX[key];
+  if (c && c.arrs.length === arrs.length &&
+      c.arrs.every((a, i) => a === arrs[i] && c.lens[i] === (a ? a.length : -1))) return c.val;
+  const val = build();
+  _IDX[key] = { arrs: arrs.slice(), lens: arrs.map(a => (a ? a.length : -1)), val };
+  return val;
+}
+// First occurrence wins — the same record Array.find() would return.
+function _byId(arr) { const m = new Map(); arr.forEach(x => { if (!m.has(x.id)) m.set(x.id, x); }); return m; }
+function _pushTo(m, k, v) { let a = m.get(k); if (!a) m.set(k, a = []); a.push(v); }
+function _skuMap() { return _memo('sku', [allSkus], () => _byId(allSkus)); }
+function _supMap() { return _memo('sup', [allSuppliers], () => _byId(allSuppliers)); }
+// First SKU (in allSkus order) carrying a given name — what allSkus.find(name match) returns.
+function _skuByNameFirst() {
+  return _memo('skuName1', [allSkus], () => {
+    const m = new Map();
+    allSkus.forEach(s => { const k = (s.name || '').trim().toLowerCase(); if (!m.has(k)) m.set(k, s); });
+    return m;
+  });
+}
+function getSup(id) { return _supMap().get(id) || { name: '—' }; }
+function getSku(id) { return _skuMap().get(id) || { name: '—', unit: 'kg', category: '—' }; }
 // ⚠ Same trap as getSku: getSubCat/getDept ALWAYS return truthy — NEVER use for existence checks.
 // For existence use: allSubCategories.some(s => s.id === id) / allDepartments.some(d => d.id === id)
 function getSubCat(id) { return allSubCategories.find(s => s.id === id) || { name: '—', category: '—' }; }
@@ -1661,6 +1873,8 @@ async function backfillOverheadEntryModes() {
 async function seedOverheadCategoriesIfEmpty() {
   if (allOverheadCategories.length > 0) return; // already seeded or user-created — never touch again
   try {
+    // Only when the server itself says the list is empty — never on the strength of a local copy
+    if (!(await db.collection('overhead_categories').limit(1).get({ source: 'server' })).empty) return;
     const meta = { createdBy: (CU ? CU.username : 'system'), createdAt: firebase.firestore.FieldValue.serverTimestamp() };
     // Parents first so children can reference real IDs
     const parentIds = {};
@@ -1697,6 +1911,8 @@ const SEED_DEPARTMENTS = ['Namkeen Production', 'Snacks Production', 'Namkeen Pa
 async function seedDepartmentsIfEmpty() {
   if (allDepartments.length > 0) return; // already seeded (or user-created) — never touch again
   try {
+    // Only when the server itself says the list is empty — never on the strength of a local copy
+    if (!(await db.collection('departments').limit(1).get({ source: 'server' })).empty) return;
     const batch = db.batch();
     SEED_DEPARTMENTS.forEach(name => {
       const ref = db.collection('departments').doc();
@@ -1711,8 +1927,16 @@ async function seedDepartmentsIfEmpty() {
     allDepartments = dpSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch(e) { console.warn('Department seeding failed (will retry on next load):', e); }
 }
-function getDels(dealId) { return allDeliveries.filter(d => d.dealId === dealId); }
-function getDelivered(dealId) { return getDels(dealId).reduce((s, d) => s + (d.qty || 0), 0); }
+function _delsByDeal() {
+  return _memo('delsByDeal', [allDeliveries], () => { const m = new Map(); allDeliveries.forEach(d => _pushTo(m, d.dealId, d)); return m; });
+}
+// A fresh copy, exactly like filter() returned — callers may sort it without disturbing the index.
+function getDels(dealId) { return (_delsByDeal().get(dealId) || []).slice(); }
+function getDelivered(dealId) {
+  const a = _delsByDeal().get(dealId); let s = 0;
+  if (a) for (const d of a) s = s + (d.qty || 0);          // same order, same arithmetic as reduce()
+  return s;
+}
 
 function badge(status) {
   if (status === 'FULFILLED')     return '<span class="badge b-fulfilled">Fulfilled</span>';
@@ -1725,6 +1949,51 @@ function pbar(delivered, total, status) {
   return `<div class="pbar"><div class="pfill ${cls}" style="width:${pct}%"></div></div><div class="pct">${Math.round(pct)}%</div>`;
 }
 function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" style="text-align:center;padding:32px;color:#94a3b8;">${msg}</td></tr>`; }
+
+// ── Long tables ──────────────────────────────────────────────
+// Journal Log, Issue History and Deals hold thousands of rows. Drawing every one of them took
+// seconds (far longer on a tablet), so each draws its first ROW_CAP rows — the latest, in date
+// order — with a "Show all" button underneath. Filters search every row and print prints every
+// matching row; only the drawing is capped. "Show all" lasts until you move to another screen.
+let ROW_CAP = 200;
+let _showAll = {};
+let _showAllScreen = '';
+function _capRows(key, rows) { return (_showAll[key] || rows.length <= ROW_CAP) ? rows : rows.slice(0, ROW_CAP); }
+function _moreNote(key, shown, total, noun) {
+  if (shown >= total) return '';
+  return `Showing ${fmtN(shown)} of ${fmtN(total)} ${noun} &mdash; filters search all of them.`
+    + ` <button class="btn btn-outline btn-sm" style="margin-left:8px;" onclick="_showAllNow(this,'${key}')">Show all ${fmtN(total)}</button>`;
+}
+function _moreRow(key, shown, total, cols, noun) {
+  const n = _moreNote(key, shown, total, noun);
+  return n ? `<tr class="more-row"><td colspan="${cols}" style="text-align:center;padding:14px;color:#64748b;font-size:12px;">${n}</td></tr>` : '';
+}
+function _moreCards(key, shown, total, noun) {
+  const n = _moreNote(key, shown, total, noun);
+  return n ? `<div class="more-row" style="text-align:center;padding:14px 8px;color:#64748b;font-size:12px;">${n}</div>` : '';
+}
+const _SHOW_ALL_REDRAW = {
+  hist:  () => renderHistory(),
+  ih:    () => _ihRedraw(),
+  deals: () => renderDeals()
+};
+function _showAllNow(btn, key) {
+  _showAll[key] = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Drawing…'; }
+  requestAnimationFrame(() => setTimeout(_SHOW_ALL_REDRAW[key], 0));   // let "Drawing…" show first
+}
+// Which screen switchSection is about to show — same choice of sub-tab switchSection makes.
+function _screenKey(sec, subId) {
+  if (!(sec.subs && sec.subs.length)) return sec.id + '/';
+  const t = subId ? sec.subs.find(s => s.id === subId)
+                  : (currentSubId ? sec.subs.find(s => s.id === currentSubId) : null);
+  return sec.id + '/' + (t || sec.subs[0]).id;
+}
+
+// Filter boxes redraw once typing pauses, not on every key.
+const _debTimers = {};
+function _debounce(key, fn, ms) { clearTimeout(_debTimers[key]); _debTimers[key] = setTimeout(fn, ms == null ? 250 : ms); }
+function _debCancel(key) { clearTimeout(_debTimers[key]); delete _debTimers[key]; }
 
 // ══════════════════════════════════════════════
 // FAB (Floating Action Button)
@@ -1823,6 +2092,7 @@ function jumpToDeals(status) {
 // DEALS SEARCH
 // ══════════════════════════════════════════════
 function onDealsSearch() {
+  _debCancel('deals');
   dealsSkuSearch = (document.getElementById('deals-sku-search')?.value || '').trim().toLowerCase();
   dealsSupSearch = (document.getElementById('deals-sup-search')?.value || '').trim().toLowerCase();
   document.getElementById('deals-sku-clear').style.display = dealsSkuSearch ? 'block' : 'none';
@@ -1858,12 +2128,11 @@ function showDealsSearchDrop(type) {
 
   if (!items.length) { drop.classList.remove('open'); return; }
 
-  // Count deals per item
+  // Count deals per item — one pass over the deals
+  const _cnt = new Map();
+  deals.forEach(d => { const n = isSkU ? getSku(d.skuId).name : getSup(d.supplierId).name; _cnt.set(n, (_cnt.get(n) || 0) + 1); });
   drop.innerHTML = items.map(name => {
-    const count = deals.filter(d => isSkU
-      ? getSku(d.skuId).name === name
-      : getSup(d.supplierId).name === name
-    ).length;
+    const count = _cnt.get(name) || 0;
     return `<div class="dsd-item" onmousedown="selectDealsSearch('${type}','${name.replace(/'/g,"\\'")}')">
       ${name}<span class="dsd-count">${count} deal${count>1?'s':''}</span>
     </div>`;
@@ -1872,6 +2141,7 @@ function showDealsSearchDrop(type) {
 }
 
 function selectDealsSearch(type, name) {
+  _debCancel('deals');           // the picked name wins over a half-typed one still waiting
   if (type === 'sku') {
     document.getElementById('deals-sku-search').value = name;
     dealsSkuSearch = name.toLowerCase();
@@ -1887,6 +2157,7 @@ function selectDealsSearch(type, name) {
 }
 
 function clearDealsSearch(type) {
+  _debCancel('deals');
   if (type === 'sku') {
     document.getElementById('deals-sku-search').value = '';
     dealsSkuSearch = '';
@@ -2023,7 +2294,8 @@ function renderDeals() {
     if (cards) cards.innerHTML = `<div class="empty"><div class="ei">🔍</div><p>${emptyMsg}</p></div>`;
     return;
   }
-  tbody.innerHTML = deals.map(deal => {
+  const shownDeals = _capRows('deals', deals);
+  tbody.innerHTML = shownDeals.map(deal => {
     const sup = getSup(deal.supplierId), sku = getSku(deal.skuId);
     const delivered = getDelivered(deal.id);
     const remaining = (deal.totalQty || 0) - delivered;
@@ -2054,9 +2326,9 @@ function renderDeals() {
         ` : `<span style="font-size:10px;color:#94a3b8;margin-left:4px;">approved &mdash; log delivery only</span>`}
       </td>
     </tr>`;
-  }).join('');
+  }).join('') + _moreRow('deals', shownDeals.length, deals.length, 10, 'deals');
   // Mobile cards
-  if (cards) cards.innerHTML = deals.map(d => dealCardHtml(d, mayActOnDeal(d))).join('');
+  if (cards) cards.innerHTML = shownDeals.map(d => dealCardHtml(d, mayActOnDeal(d))).join('') + _moreCards('deals', shownDeals.length, deals.length, 'deals');
 }
 
 // ══════════════════════════════════════════════
@@ -2470,11 +2742,23 @@ async function saveSup() {
   const name = document.getElementById('sm-name').value.trim();
   if (!name) { alert('Supplier name is required.'); return; }
   const data = { name, contact: document.getElementById('sm-contact').value.trim(), address: document.getElementById('sm-addr').value.trim() };
+  // A rename carries through to past deliveries — worked out before the new name lands
+  const _prev = id ? allSuppliers.find(s => s.id === id) : null;
+  const _nameUps = (_prev && _prev.name !== name) ? _supNameUpdates(id, name) : [];
   try {
     if (id) await db.collection('suppliers').doc(id).update(data);
     else await db.collection('suppliers').add({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     closeOverlay('modal-sup');
+    if (_nameUps.length) {
+      try { await _writeNameUpdates(_nameUps); }
+      catch(e2) {
+        await loadAll();
+        alert('The new name is saved, but some past deliveries still show the old one (' + fmtFirebaseError(e2) + ').\n\nPress 🏷 Fix Stale Names on the SKUs screen to finish.');
+        return;
+      }
+    }
     await loadAll();
+    if (_nameUps.length) alert('✓ Supplier renamed.' + _renameDoneMsg(_nameUps.length));
   } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
@@ -2706,6 +2990,9 @@ async function saveSku() {
 
   const reorderLevel = parseFloat(document.getElementById('skm-reorder')?.value)||0;
   const data = { name, category: document.getElementById('skm-cat').value, unit: document.getElementById('skm-unit').value, reorderLevel };
+  // A rename carries through to past records — worked out before the new name lands
+  const _prev = id ? allSkus.find(s => s.id === id) : null;
+  const _nameUps = (_prev && _prev.name !== name) ? _skuNameUpdates(id, _prev.name, name) : [];
 
   const doSave = async () => {
     if (id) return db.collection('skus').doc(id).update(data);
@@ -2723,7 +3010,16 @@ async function saveSku() {
       } else { throw e1; }
     }
     closeOverlay('modal-sku');
+    if (_nameUps.length) {
+      try { await _writeNameUpdates(_nameUps); }
+      catch(e2) {
+        await loadAll();
+        alert('The new name is saved, but some past records still show the old one (' + fmtFirebaseError(e2) + ').\n\nPress 🏷 Fix Stale Names on the SKUs screen to finish.');
+        return;
+      }
+    }
     await loadAll();
+    if (_nameUps.length) alert('✓ SKU renamed.' + _renameDoneMsg(_nameUps.length));
   } catch(e) {
     const msg = e.code === 'unavailable' || e.message?.includes('transport')
       ? `Network issue — please check your connection and try again.\n\n(The SKU may have already been saved. Refresh the page to check.)`
@@ -2950,6 +3246,87 @@ async function repairOrphans() {
     await batch.commit();
     await loadAll();
     alert(`✅ Repair complete!\n\nReassigned ${totalRecoverable} record(s) to their matching SKUs.`);
+  } catch(e) { alert(fmtFirebaseError(e)); }
+}
+
+// ══════════════════════════════════════════════
+// NAMES ON PAST RECORDS
+// Deliveries, issues and opening-stock entries keep a copy of the SKU's name, and deliveries the
+// supplier's. A rename used to leave that copy behind, so the Journal Log and Issue History kept
+// showing the old name and their filters could not find those records by the new one. A rename
+// now carries through to every record, pending ones included; "🏷 Fix Stale Names" repairs
+// renames made before. Only names are rewritten — never quantities, rates, units or dates.
+// ══════════════════════════════════════════════
+const _NAME_BATCH = 200;
+async function _writeNameUpdates(ups) {
+  for (let i = 0; i < ups.length; i += _NAME_BATCH) {
+    const b = db.batch();
+    ups.slice(i, i + _NAME_BATCH).forEach(([col, id, data]) => b.update(db.collection(col).doc(id), data));
+    await b.commit();
+  }
+}
+// Records that should carry newName once SKU skuId is renamed. Worked out before the rename is
+// saved. Orphans (records whose SKU was deleted) are tied to a SKU only by name: they come along
+// only when this SKU is the one SKU with the old name, so a rename never moves them elsewhere and
+// the stock figures stay exactly as they were.
+function _skuNameUpdates(skuId, oldName, newName) {
+  const oldKey = (oldName || '').trim().toLowerCase();
+  const soleOwner = allSkus.filter(s => (s.name || '').trim().toLowerCase() === oldKey).length === 1;
+  const valid = _skuMap();
+  const mine = r => r.skuId === skuId ||
+    (soleOwner && !valid.has(r.skuId) && (r.skuName || '').trim().toLowerCase() === oldKey);
+  const ups = [];
+  [['deliveries', allDeliveries.concat(pendingDeliveries)],
+   ['stock_issues', allStockIssues.concat(pendingIssues)],
+   ['stock_opening', allStockOpening]].forEach(([col, recs]) => recs.forEach(r => {
+    if (mine(r) && r.skuName !== newName) ups.push([col, r.id, { skuName: newName }]);
+  }));
+  return ups;
+}
+// Deliveries that should carry newName once supplier supId is renamed (a delivery's supplier is
+// its deal's supplier; a delivery whose deal is gone is left alone).
+function _supNameUpdates(supId, newName) {
+  const ups = [];
+  allDeliveries.concat(pendingDeliveries).forEach(d => {
+    const deal = anyDeal(d.dealId);
+    if (deal && deal.supplierId === supId && d.supplierName !== newName) ups.push(['deliveries', d.id, { supplierName: newName }]);
+  });
+  return ups;
+}
+function _renameDoneMsg(n) {
+  return n ? '\n\nThe new name is now on ' + n + ' past record' + (n === 1 ? '' : 's') + '.' : '';
+}
+
+async function repairStaleNames() {
+  const skus = _skuMap(), sups = _supMap();
+  const upd = new Map();                                   // 'col/id' → [col, id, {fields}]
+  const put = (col, id, field, val) => { const k = col + '/' + id; let u = upd.get(k); if (!u) upd.set(k, u = [col, id, {}]); u[2][field] = val; };
+  let nSku = 0, nSup = 0; const ex = [];
+  const skuStale = (col, r, label) => {
+    const s = skus.get(r.skuId);                           // orphans are Repair Orphans' job
+    if (!s || r.skuName === s.name) return;
+    put(col, r.id, 'skuName', s.name); nSku++;
+    if (ex.length < 8) ex.push(`  • ${label}: "${r.skuName || '—'}" → "${s.name}"`);
+  };
+  allDeliveries.concat(pendingDeliveries).forEach(d => {
+    skuStale('deliveries', d, 'Delivery ' + fmtD(d.deliveryDate));
+    const deal = anyDeal(d.dealId), sp = deal ? sups.get(deal.supplierId) : null;
+    if (sp && d.supplierName !== sp.name) {
+      put('deliveries', d.id, 'supplierName', sp.name); nSup++;
+      if (ex.length < 8) ex.push(`  • Delivery ${fmtD(d.deliveryDate)}, supplier: "${d.supplierName || '—'}" → "${sp.name}"`);
+    }
+  });
+  allStockIssues.concat(pendingIssues).forEach(i => skuStale('stock_issues', i, 'Issue ' + fmtD(i.date)));
+  allStockOpening.forEach(o => skuStale('stock_opening', o, 'Opening stock ' + fmtD(o.date)));
+  if (!upd.size) { alert('✅ Every record already shows its SKU’s and supplier’s current name — nothing to fix.'); return; }
+  const more = nSku + nSup - ex.length;
+  if (!confirm(`${upd.size} record(s) still show an old name:\n  • ${nSku} with an old SKU name\n  • ${nSup} with an old supplier name\n\n` +
+    `Examples:\n${ex.join('\n')}${more > 0 ? `\n  ... and ${more} more` : ''}\n\n` +
+    `Update them to the current names? Only names change — quantities, rates, units and dates are untouched.`)) return;
+  try {
+    await _writeNameUpdates([...upd.values()]);
+    await loadAll();
+    alert(`✅ Updated ${upd.size} record(s).`);
   } catch(e) { alert(fmtFirebaseError(e)); }
 }
 
@@ -4298,18 +4675,18 @@ function setHistSort(key, btn) {
   renderHistory();
 }
 function clearHistFilters() {
+  _debCancel('hist');
   document.getElementById('hist-from').value = '';
   document.getElementById('hist-to').value = '';
   document.getElementById('hist-sku-filter').value = '';
   renderHistory();
 }
 
-function renderHistory() {
+// Journal Log entries for the current filters and sort — used by the screen and by print.
+function _histMovements() {
   const fromDate  = document.getElementById('hist-from')?.value  || '';
   const toDate    = document.getElementById('hist-to')?.value    || '';
   const skuFilter = (document.getElementById('hist-sku-filter')?.value || '').toLowerCase();
-  const thActions = document.getElementById('hist-th-actions');
-  if (thActions) thActions.textContent = isAdmin() ? 'Actions' : '';
 
   // Build unified movement list
   let movements = [];
@@ -4317,8 +4694,8 @@ function renderHistory() {
   if (histType !== 'outward') {
     allDeliveries.forEach(d => {
       // Resolve SKU: try direct ID first, then fallback to name-match for orphaned IDs
-      const directSku = allSkus.find(s => s.id === d.skuId);
-      const resolvedSku = directSku || allSkus.find(s => s.name.trim().toLowerCase() === (d.skuName || '').trim().toLowerCase());
+      const directSku = _skuMap().get(d.skuId);
+      const resolvedSku = directSku || _skuByNameFirst().get((d.skuName || '').trim().toLowerCase());
       movements.push({
         date: d.deliveryDate, type: 'inward',
         supplier: d.supplierName || '—',
@@ -4361,13 +4738,10 @@ function renderHistory() {
     if (histSort === 'supplier') return a.supplier.localeCompare(b.supplier);
     return 0;
   });
-
-  const tbody = document.getElementById('hist-tbody');
-  if (!movements.length) {
-    tbody.innerHTML = emptyRow(11, 'No records found for selected filters');
-    return;
-  }
-  tbody.innerHTML = movements.map(m => `<tr>
+  return movements;
+}
+function _histRowHtml(m) {
+  return `<tr>
     <td>${fmtD(m.date)}</td>
     <td>${m.type === 'inward'
       ? '<span class="badge" style="background:#dcfce7;color:#15803d;">🟢 Inward</span>'
@@ -4389,13 +4763,28 @@ function renderHistory() {
         : `<button class="btn btn-outline btn-sm" onclick="openEditIssue('${m.id}')">Edit</button>
            <button class="btn btn-red btn-sm" onclick="deleteIssue('${m.id}')">Del</button>`) : ''}
     </td>
-  </tr>`).join('');
+  </tr>`;
+}
+function renderHistory() {
+  _debCancel('hist');
+  const thActions = document.getElementById('hist-th-actions');
+  if (thActions) thActions.textContent = isAdmin() ? 'Actions' : '';
+  const movements = _histMovements();
+  const tbody = document.getElementById('hist-tbody');
+  if (!movements.length) {
+    tbody.innerHTML = emptyRow(11, 'No records found for selected filters');
+    return;
+  }
+  const shown = _capRows('hist', movements);
+  tbody.innerHTML = shown.map(_histRowHtml).join('') + _moreRow('hist', shown.length, movements.length, 11, 'entries');
 }
 
 function printHistory() {
   const fromDate  = document.getElementById('hist-from')?.value  || '';
   const toDate    = document.getElementById('hist-to')?.value    || '';
-  const rows = document.getElementById('hist-tbody').innerHTML;
+  // Every matching entry — not only the rows drawn on screen
+  const _mv = _histMovements();
+  const rows = _mv.length ? _mv.map(_histRowHtml).join('') : emptyRow(11, 'No records found for selected filters');
   const typeLabel = histType === 'inward' ? 'Inwards Only' : histType === 'outward' ? 'Outwards Only' : 'All Movements';
   const dateLabel = fromDate || toDate ? ` | ${fromDate?fmtD(fromDate):'Start'} → ${toDate?fmtD(toDate):'Today'}` : '';
   const html = `<!DOCTYPE html><html><head><title>TradeTrack – History</title><style>
@@ -4649,9 +5038,38 @@ document.querySelectorAll('.overlay').forEach(o => {
 // ══════════════════════════════════════════════
 
 // Get latest opening stock entry for a SKU
+// Per-SKU record lists, built in one pass over each array so every list keeps the original
+// array order. Deliveries are attached to SKUs exactly as deliveryMatchesSku() decides:
+// by id; or, when the delivery's SKU id no longer exists (SKU deleted and recreated), to every
+// current SKU whose name matches the delivery's stored skuName.
+function _stockIdx() {
+  return _memo('stock', [allSkus, allDeliveries, allStockIssues, allStockOpening], () => {
+    const skuById = _skuMap();
+    const idsByName = new Map();
+    allSkus.forEach(s => _pushTo(idsByName, (s.name || '').trim().toLowerCase(), s.id));
+    const delResolved = new Map(), delDirect = new Map();
+    allDeliveries.forEach(d => {
+      _pushTo(delDirect, d.skuId, d);
+      if (skuById.has(d.skuId)) _pushTo(delResolved, d.skuId, d);
+      else (idsByName.get((d.skuName || '').trim().toLowerCase()) || []).forEach(id => _pushTo(delResolved, id, d));
+    });
+    const iss = new Map();  allStockIssues.forEach(i => _pushTo(iss, i.skuId, i));
+    const open = new Map(); allStockOpening.forEach(o => _pushTo(open, o.skuId, o));
+    return { skuById, delResolved, delDirect, iss, open, latest: new Map() };
+  });
+}
+// Deliveries deliveryMatchesSku(d, skuId) accepts: resolved list for a current SKU; for an id
+// that isn't a current SKU, only deliveries carrying that exact id.
+function _delsForSku(ix, skuId) { return (ix.skuById.has(skuId) ? ix.delResolved : ix.delDirect).get(skuId) || []; }
 function getLatestOpening(skuId) {
-  const entries = allStockOpening.filter(s => s.skuId === skuId).sort((a, b) => b.date > a.date ? 1 : -1);
-  return entries[0] || null;
+  const ix = _stockIdx();
+  if (ix.latest.has(skuId)) return ix.latest.get(skuId);
+  // Same subsequence, same comparator as the original filter().sort(), so the same winner —
+  // including how ties on the same date resolve.
+  const entries = (ix.open.get(skuId) || []).slice().sort((a, b) => b.date > a.date ? 1 : -1);
+  const r = entries[0] || null;
+  ix.latest.set(skuId, r);
+  return r;
 }
 
 // Calculate current stock for a SKU
@@ -4661,10 +5079,11 @@ function getLatestOpening(skuId) {
 function deliveryMatchesSku(d, skuId) {
   if (d.skuId === skuId) return true; // exact match — fastest path
   // Check if delivery's skuId is orphaned (doesn't exist in current allSkus)
-  const deliverySkuExists = allSkus.some(s => s.id === d.skuId);
+  const skuById = _skuMap();
+  const deliverySkuExists = skuById.has(d.skuId);
   if (deliverySkuExists) return false; // delivery references a DIFFERENT valid SKU — not a match
   // Delivery has orphaned skuId — match by stored skuName against current SKU's name
-  const currentSku = allSkus.find(s => s.id === skuId);
+  const currentSku = skuById.get(skuId);
   if (!currentSku) return false;
   return (d.skuName || '').trim().toLowerCase() === currentSku.name.trim().toLowerCase();
 }
@@ -4674,15 +5093,14 @@ function calcStock(skuId) {
   const baseDate = opening ? opening.date : '0000-00-00';
   const baseQty  = opening ? (opening.qty || 0) : 0;
 
-  // Sum deliveries on/after base date (with orphaned skuId fallback)
-  const purchased = allDeliveries
-    .filter(d => deliveryMatchesSku(d, skuId) && d.deliveryDate >= baseDate)
-    .reduce((s, d) => s + (d.qty || 0), 0);
+  const ix = _stockIdx();
+  // Sum deliveries on/after base date (with orphaned skuId fallback) — same order as before
+  let purchased = 0;
+  for (const d of _delsForSku(ix, skuId)) if (d.deliveryDate >= baseDate) purchased = purchased + (d.qty || 0);
 
   // Sum issues on/after base date
-  const issued = allStockIssues
-    .filter(i => i.skuId === skuId && i.date >= baseDate)
-    .reduce((s, i) => s + (i.qty || 0), 0);
+  let issued = 0;
+  for (const i of (ix.iss.get(skuId) || [])) if (i.date >= baseDate) issued = issued + (i.qty || 0);
 
   return { baseQty, baseDate, purchased, issued, closing: baseQty + purchased - issued };
 }
@@ -4690,18 +5108,17 @@ function calcStock(skuId) {
 // Calculate stock as of a specific date (for historical reports)
 function calcStockAsOf(skuId, asOfDate) {
   if (!asOfDate || asOfDate >= today()) return calcStock(skuId);
+  const ix = _stockIdx();
   // Get latest opening on or before asOfDate
-  const opening = allStockOpening
-    .filter(o => o.skuId === skuId && o.date <= asOfDate)
+  const opening = (ix.open.get(skuId) || [])
+    .filter(o => o.date <= asOfDate)
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   const baseDate = opening ? opening.date : '0000-00-00';
   const baseQty  = opening ? (opening.qty || 0) : 0;
-  const purchased = allDeliveries
-    .filter(d => deliveryMatchesSku(d, skuId) && d.deliveryDate >= baseDate && d.deliveryDate <= asOfDate)
-    .reduce((s, d) => s + (d.qty || 0), 0);
-  const issued = allStockIssues
-    .filter(i => i.skuId === skuId && i.date >= baseDate && i.date <= asOfDate)
-    .reduce((s, i) => s + (i.qty || 0), 0);
+  let purchased = 0;
+  for (const d of _delsForSku(ix, skuId)) if (d.deliveryDate >= baseDate && d.deliveryDate <= asOfDate) purchased = purchased + (d.qty || 0);
+  let issued = 0;
+  for (const i of (ix.iss.get(skuId) || [])) if (i.date >= baseDate && i.date <= asOfDate) issued = issued + (i.qty || 0);
   return { baseQty, baseDate, purchased, issued, closing: baseQty + purchased - issued };
 }
 
@@ -4956,17 +5373,25 @@ function renderSetOpening(el) {
 }
 
 // Issue History (admin) — with filters
+// Debounced redraw from the filter box — only while Issue History is still the screen showing.
+function _ihRedraw() {
+  const el = document.getElementById('stock-content');
+  if (el && el.querySelector('#ih-sku-search')) renderIssueHistory(el);
+}
 function renderIssueHistory(el) {
+  _debCancel('ih');
   let issues = [...allStockIssues];
   // Build filter UI
-  const skuSearch = document.getElementById('ih-sku-search')?.value?.toLowerCase() || '';
+  const skuRaw    = document.getElementById('ih-sku-search')?.value || '';
+  const skuSearch = skuRaw.toLowerCase();
   const fromDate  = document.getElementById('ih-from')?.value || '';
   const toDate    = document.getElementById('ih-to')?.value   || '';
   if (skuSearch) issues = issues.filter(i => (i.skuName||'').toLowerCase().includes(skuSearch));
   if (fromDate)  issues = issues.filter(i => i.date >= fromDate);
   if (toDate)    issues = issues.filter(i => i.date <= toDate);
 
-  const rows = issues.length ? issues.map(i => {
+  const shownIssues = _capRows('ih', issues);
+  const rows = issues.length ? shownIssues.map(i => {
     const sku = getSku(i.skuId);
     return `<tr>
       <td>${fmtD(i.date)}</td>
@@ -4980,7 +5405,13 @@ function renderIssueHistory(el) {
         <button class="btn btn-red btn-sm" onclick="deleteIssue('${i.id}')">Del</button>
       </td>
     </tr>`;
-  }).join('') : `<tr><td colspan="7" style="text-align:center;padding:24px;color:#94a3b8;">No issues found</td></tr>`;
+  }).join('') + _moreRow('ih', shownIssues.length, issues.length, 7, 'entries') : `<tr><td colspan="7" style="text-align:center;padding:24px;color:#94a3b8;">No issues found</td></tr>`;
+
+  // The filter bar is drawn once. Later redraws replace only the table under it, so the box you
+  // are typing in is never swapped out (it used to lose the cursor after every letter).
+  const _bar = el.querySelector('#ih-sku-search');
+  const _tb = _bar && el.querySelector('tbody');
+  if (_tb) { _tb.innerHTML = rows; return; }
 
   el.innerHTML = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:flex-end;">
@@ -4996,8 +5427,8 @@ function renderIssueHistory(el) {
       </div>
       <div style="flex:1;min-width:160px;">
         <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">SKU</div>
-        <input type="text" id="ih-sku-search" value="${skuSearch}" placeholder="Filter by SKU name..."
-          oninput="renderIssueHistory(document.getElementById('stock-content'))"
+        <input type="text" id="ih-sku-search" value="${skuRaw.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}" placeholder="Filter by SKU name..."
+          oninput="_debounce('ih', _ihRedraw)"
           style="width:100%;padding:8px 10px;border:2px solid #e8edf3;border-radius:8px;font-size:13px;outline:none;font-family:inherit;" />
       </div>
     </div>
@@ -6246,10 +6677,10 @@ window.addEventListener('appinstalled', () => {
     'repairOrphans','saveBulkDeal','saveDeal','saveEditDelivery','saveEditIssue',
     'saveOpeningStock','saveSku','saveSup','saveUser','submitBulkDelivery',
     'submitDelivery','submitIssue','restoreBackup',
-    'approveOne','rejectOne','approveAllPending',
+    'approveOne','rejectOne','approveAllPending','approveSelected','rejectSelected',
     'addOverheadCat','addOverheadChild','editOverheadCat',
     'toggleOverheadCatActive','deleteOverheadCat',
-    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead','saveEditOverhead','repairDealRates',
+    'saveOhDaily','saveOhPeriod','saveOhWages','deleteOverhead','saveEditOverhead','repairDealRates','repairStaleNames',
     'deleteDuplicateRecord','approveAllOverheads','saveFuelStockTake'];
 
   // Remember which button was actually pressed (capture phase, before handlers run)
@@ -6457,6 +6888,55 @@ var oprReviewFilter = 'all';
 
 function setOprReviewFilter(f){ oprReviewFilter = f; renderOprReview(); }
 
+// ── Selection for bulk approve / reject ──
+// Keys are 'type:id'. The selection only ever covers entries on screen: every redraw drops
+// anything no longer pending or not in the tab you are on.
+var _oprSel = new Set();
+var _oprShownKeys = [];
+function _oprSelSync(){
+  var n = _oprSel.size;
+  var all = document.getElementById('opr-selall');
+  if(all){ all.checked = n > 0 && n === _oprShownKeys.length; all.indeterminate = n > 0 && n < _oprShownKeys.length; }
+  var acts = document.getElementById('opr-selacts');
+  if(acts) acts.style.display = n ? 'inline-flex' : 'none';
+  var cnt = document.getElementById('opr-selcount');
+  if(cnt) cnt.textContent = n + ' selected';
+}
+function _oprMarkCard(cb){
+  var card = cb.closest('.opr-card');
+  if(card) card.style.background = cb.checked ? '#eff6ff' : '#fff';
+}
+function _oprSelToggle(cb){
+  if(cb.checked) _oprSel.add(cb.dataset.key); else _oprSel.delete(cb.dataset.key);
+  _oprMarkCard(cb);
+  _oprSelSync();
+}
+function _oprSelAll(on){
+  _oprSel = new Set(on ? _oprShownKeys : []);
+  document.querySelectorAll('#opr-review-content .opr-sel').forEach(function(cb){ cb.checked = on; _oprMarkCard(cb); });
+  _oprSelSync();
+}
+function _oprSelClear(){ _oprSelAll(false); }
+// Entries (by 'type:id' key) that are still pending, as {type, rec}
+function _oprItems(keys){
+  var out = [];
+  keys.forEach(function(k){
+    var i = k.indexOf(':'), type = k.slice(0, i), id = k.slice(i + 1);
+    var src = type==='deal' ? pendingDeals : type==='delivery' ? pendingDeliveries : type==='issue' ? pendingIssues : [];
+    var rec = src.find(function(r){ return r.id === id; });
+    if(rec) out.push({ type:type, rec:rec });
+  });
+  return out;
+}
+function _oprSelItems(){ return _oprItems(Array.from(_oprSel)); }
+// Approve All acts on what you have seen. Entries that arrived after the list was drawn are left
+// out, and the confirmation says so.
+function _newerNote(n){
+  return n > 0 ? '\n\n' + n + ' newer entr' + (n===1?'y':'ies') + ' arrived after this list was drawn and ' +
+                 (n===1?'is':'are') + ' not included — you\u2019ll see ' + (n===1?'it':'them') + ' next.' : '';
+}
+var _BATCH_MAX = 200;           // well inside Firestore's 500-writes-per-batch limit
+
 function renderOprReview(){
   var el = document.getElementById('opr-review-content');
   if(!el) return;
@@ -6512,6 +6992,9 @@ function renderOprReview(){
 
   var shown = items.filter(function(x){ return oprReviewFilter==='all' || x.type===oprReviewFilter; });
   shown.sort(function(a,b){ return (a.date||'') < (b.date||'') ? 1 : -1; });
+  // Keep only selections that are still pending and on this tab
+  _oprShownKeys = shown.map(function(x){ return x.type + ':' + x.id; });
+  _oprSel = new Set(_oprShownKeys.filter(function(k){ return _oprSel.has(k); }));
 
   var tabs = [['all','All ('+items.length+')'],['deal','Deals ('+pendingDeals.length+')'],
               ['delivery','Deliveries ('+pendingDeliveries.length+')'],['issue','Issues ('+pendingIssues.length+')']];
@@ -6534,11 +7017,27 @@ function renderOprReview(){
        '<button class="btn btn-green" onclick="approveAllPending()">✓ All OK — Approve ' +
        (oprReviewFilter==='all' ? 'All' : 'These') + ' (' + shown.length + ')</button></div>';
 
+  // Bulk bar — stays at the top while you scroll the list
+  h += '<div id="opr-selbar" style="position:sticky;z-index:20;display:flex;gap:8px;flex-wrap:wrap;align-items:center;' +
+       'padding:9px 12px;margin-bottom:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 2px 8px rgba(15,32,68,.06);">' +
+       '<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#0f2044;cursor:pointer;">' +
+       '<input type="checkbox" id="opr-selall" onchange="_oprSelAll(this.checked)" style="width:18px;height:18px;cursor:pointer;">' +
+       ' Select all ' + shown.length + '</label>' +
+       '<span id="opr-selacts" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto;">' +
+       '<span id="opr-selcount" style="font-size:13px;font-weight:800;color:#1565c0;"></span>' +
+       '<button class="btn btn-green btn-sm" onclick="approveSelected()">✓ Approve</button>' +
+       '<button class="btn btn-red btn-sm" onclick="rejectSelected()">✕ Reject</button>' +
+       '<button class="btn btn-outline btn-sm" onclick="_oprSelClear()">Clear</button></span></div>';
+
   shown.forEach(function(x){
     var badge = x.type==='deal' ? '#1565c0' : x.type==='delivery' ? '#2e7d32' : '#b45309';
-    h += '<div style="border:1px solid #e2e8f0;border-left:4px solid ' + badge +
-         ';border-radius:10px;padding:12px 14px;margin-bottom:10px;background:#fff;">';
+    var key = x.type + ':' + x.id, on = _oprSel.has(key);
+    h += '<div class="opr-card" style="border:1px solid #e2e8f0;border-left:4px solid ' + badge +
+         ';border-radius:10px;padding:12px 14px;margin-bottom:10px;background:' + (on ? '#eff6ff' : '#fff') + ';">';
     h += '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start;">';
+    h += '<input type="checkbox" class="opr-sel" data-key="' + key + '"' + (on ? ' checked' : '') +
+         ' onchange="_oprSelToggle(this)" title="Select for bulk approve / reject"' +
+         ' style="width:18px;height:18px;margin-top:1px;cursor:pointer;flex:0 0 auto;">';
     h += '<div style="flex:1;min-width:220px;">';
     h += '<div style="font-size:13px;font-weight:800;color:#0f2044;">' + x.title + '</div>';
     h += '<div style="font-size:12px;color:#475569;margin-top:3px;">' + x.detail + '</div>';
@@ -6557,6 +7056,7 @@ function renderOprReview(){
     h += '</div></div></div>';
   });
   el.innerHTML = h;
+  _oprSelSync();
 }
 
 function _collFor(type){
@@ -6581,10 +7081,12 @@ async function _postApprove(type, rec){
 // ══════════════════════════════════════════════
 // ACCOUNTS REVIEW — approve overhead entries
 // ══════════════════════════════════════════════
+var _acctShownIds = [];           // entries on screen — what Approve All acts on
 function renderAcctReview(){
   var el = document.getElementById('acct-review-content');
   if(!el) return;
   if(!isAdmin()){ el.innerHTML = '<div class="alert alert-warn" style="display:block;">Admin only.</div>'; return; }
+  _acctShownIds = pendingOverheads.map(function(o){ return o.id; });
 
   if(!pendingOverheads.length){
     el.innerHTML = '<div class="card" style="padding:30px;text-align:center;">' +
@@ -6643,17 +7145,23 @@ function renderAcctReview(){
 }
 
 async function approveAllOverheads(){
-  if(!pendingOverheads.length) return;
-  var total = pendingOverheads.reduce(function(s,o){ return s + (o.amount||0); }, 0);
-  if(!confirm('Approve all ' + pendingOverheads.length + ' overhead entr' +
-     (pendingOverheads.length===1?'y':'ies') + ' worth ₹' + fmtN(Math.round(total)) +
-     '?\n\nThey will immediately count towards overhead totals and cost-per-kg.')) return;
+  // Exactly the entries on screen that are still pending (live sync can add more behind the list)
+  var seen = {};
+  _acctShownIds.forEach(function(id){ seen[id] = 1; });
+  var list = pendingOverheads.filter(function(o){ return seen[o.id]; });
+  if(!list.length){ renderAcctReview(); return; }
+  var total = list.reduce(function(s,o){ return s + (o.amount||0); }, 0);
+  if(!confirm('Approve all ' + list.length + ' overhead entr' +
+     (list.length===1?'y':'ies') + ' worth ₹' + fmtN(Math.round(total)) +
+     '?\n\nThey will immediately count towards overhead totals and cost-per-kg.' + _newerNote(pendingOverheads.length - list.length))) return;
   try{
     var stamp = { approval:'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() };
-    var batch = db.batch();
-    pendingOverheads.forEach(function(o){ batch.update(db.collection('overheads').doc(o.id), stamp); });
-    await batch.commit();
-    var n = pendingOverheads.length;
+    for(var i=0;i<list.length;i+=_BATCH_MAX){
+      var batch = db.batch();
+      list.slice(i, i+_BATCH_MAX).forEach(function(o){ batch.update(db.collection('overheads').doc(o.id), stamp); });
+      await batch.commit();
+    }
+    var n = list.length;             // counted before the live data drops them from the pending list
     await loadAll();
     alert('✓ Approved ' + n + ' overhead entr' + (n===1?'y':'ies') + '.');
   }catch(e){ alert(fmtFirebaseError(e)); }
@@ -6699,28 +7207,109 @@ async function rejectOne(type, id){
   }catch(e){ alert(fmtFirebaseError(e)); }
 }
 
+// Approve a set of pending entries with one confirmation and batched writes.
+// Deals are written first, so no delivery is ever live against a pending deal. A delivery whose
+// deal is still pending takes that deal with it — the rule a single approval enforces by asking —
+// and the confirmation says so. Returns null if you cancel.
+async function _approveEntries(list, lead, newer){
+  var dealIds = {};
+  list.forEach(function(x){ if(x.type==='deal') dealIds[x.rec.id] = 1; });
+  var extra = [], extraDels = 0;
+  list.forEach(function(x){
+    if(x.type!=='delivery' || !x.rec.dealId) return;
+    var p = anyDeal(x.rec.dealId);
+    if(!p || !isPending(p)) return;
+    if(!dealIds[p.id]){ dealIds[p.id] = 1; extra.push({ type:'deal', rec:p }); }
+    if(extra.some(function(d){ return d.rec.id === p.id; })) extraDels++;
+  });
+  var n = list.length;
+  var msg = lead + ' ' + n + ' ' + (lead === 'Approve all' ? 'pending' : 'selected') + ' entr' + (n===1?'y':'ies') + '?';
+  if(extra.length){
+    msg += '\n\n' + (extraDels===1 ? '1 delivery is' : extraDels + ' deliveries are') + ' against ' +
+           (extra.length===1 ? 'a deal that is' : extra.length + ' deals that are') + ' still pending — ' +
+           (extra.length===1 ? 'that deal' : 'those deals') + ' will be approved as well.';
+  }
+  msg += '\n\nThey will immediately count towards stock, deal balances and reports.' + _newerNote(newer || 0);
+  if(!confirm(msg)) return null;
+
+  var all = extra.concat(list).sort(function(a,b){ return (a.type==='deal'?0:1) - (b.type==='deal'?0:1); });
+  var stamp = { approval:'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() };
+  for(var i=0;i<all.length;i+=_BATCH_MAX){
+    var b = db.batch();
+    all.slice(i, i+_BATCH_MAX).forEach(function(x){ b.update(db.collection(_collFor(x.type)).doc(x.rec.id), stamp); });
+    await b.commit();
+  }
+  // Recalculate deal statuses once, for every deal touched by an approved delivery. The short wait
+  // lets the live data take in a deal approved just now, which the recalculation needs to find.
+  await new Promise(function(r){ setTimeout(r, 0); });
+  var touched = {};
+  all.forEach(function(x){ if(x.type==='delivery' && x.rec.dealId) touched[x.rec.dealId] = 1; });
+  await Promise.all(Object.keys(touched).map(function(id){ return recalcDealStatus(id).catch(function(){}); }));
+  return { n: n, extra: extra.length };
+}
+function _approvedMsg(r){
+  return '✓ Approved ' + r.n + ' entr' + (r.n===1?'y':'ies') +
+         (r.extra ? ', plus ' + r.extra + ' pending deal' + (r.extra===1?'':'s') + ' they belonged to' : '') + '.';
+}
+
 async function approveAllPending(){
-  var list = [];
-  if(oprReviewFilter==='all' || oprReviewFilter==='deal') pendingDeals.forEach(function(d){ list.push(['deal', d]); });
-  if(oprReviewFilter==='all' || oprReviewFilter==='delivery') pendingDeliveries.forEach(function(d){ list.push(['delivery', d]); });
-  if(oprReviewFilter==='all' || oprReviewFilter==='issue') pendingIssues.forEach(function(d){ list.push(['issue', d]); });
-  if(!list.length) return;
-  if(!confirm('Approve all ' + list.length + ' pending entr' + (list.length===1?'y':'ies') +
-              '?\n\nThey will immediately count towards stock, deal balances and reports.')) return;
+  // Exactly the entries on screen that are still pending (live sync can add more behind the list)
+  var list = _oprItems(_oprShownKeys);
+  if(!list.length){ renderOprReview(); return; }
+  var onTab = oprReviewFilter==='deal' ? pendingDeals.length : oprReviewFilter==='delivery' ? pendingDeliveries.length
+            : oprReviewFilter==='issue' ? pendingIssues.length : oprPendingCount();
   try{
-    // Deals first so deliveries never go live against a still-pending deal
-    list.sort(function(a,b){ return (a[0]==='deal'?0:1) - (b[0]==='deal'?0:1); });
-    var stamp = { approval:'approved', approvedBy: CU.username, approvedAt: firebase.firestore.FieldValue.serverTimestamp() };
-    for(var i=0;i<list.length;i++){
-      await db.collection(_collFor(list[i][0])).doc(list[i][1].id).update(stamp);
-    }
-    // Recalculate deal statuses once, for every deal touched by an approved delivery
-    var deals = {};
-    list.forEach(function(x){ if(x[0]==='delivery' && x[1].dealId) deals[x[1].dealId] = 1; });
-    var ids = Object.keys(deals);
-    for(var j=0;j<ids.length;j++){ try{ await recalcDealStatus(ids[j]); }catch(e){} }
+    var r = await _approveEntries(list, 'Approve all', onTab - list.length);
+    if(!r) return;
+    _oprSel.clear();
     await loadAll();
-    alert('✓ Approved ' + list.length + ' entr' + (list.length===1?'y':'ies') + '.');
+    alert(_approvedMsg(r));
+  }catch(e){ alert(fmtFirebaseError(e)); }
+}
+
+async function approveSelected(){
+  var list = _oprSelItems();
+  if(!list.length){ renderOprReview(); return; }      // what you picked was already dealt with
+  try{
+    var r = await _approveEntries(list, 'Approve');
+    if(!r) return;
+    _oprSel.clear();
+    await loadAll();
+    alert(_approvedMsg(r));
+  }catch(e){ alert(fmtFirebaseError(e)); }
+}
+
+// Reject = permanent delete, as with a single rejection. Rejecting a deal also deletes the pending
+// deliveries against it; the one confirmation says how many.
+async function rejectSelected(){
+  var list = _oprSelItems();
+  if(!list.length){ renderOprReview(); return; }      // what you picked was already dealt with
+  var sel = {}, dealIds = {};
+  list.forEach(function(x){ sel[x.type + ':' + x.rec.id] = 1; if(x.type==='deal') dealIds[x.rec.id] = 1; });
+  var kids = pendingDeliveries.filter(function(d){ return dealIds[d.dealId] && !sel['delivery:' + d.id]; });
+  var n = list.length, nd = Object.keys(dealIds).length;
+  var msg = 'Reject and permanently delete ' + n + ' selected entr' + (n===1?'y':'ies') + '?';
+  if(kids.length){
+    msg += '\n\n' + (nd===1 ? 'The selected deal has ' : 'The selected deals have ') + kids.length +
+           ' more pending deliver' + (kids.length===1?'y':'ies') + ' against ' + (nd===1?'it':'them') +
+           ' — ' + (kids.length===1?'it':'they') + ' will be deleted too.';
+  }
+  msg += '\n\nThis cannot be undone.';
+  if(!confirm(msg)) return;
+  try{
+    // Deliveries first, deals last — a deal is never gone while entries against it remain
+    var order = { delivery:0, issue:1, deal:2 };
+    var all = kids.map(function(d){ return { type:'delivery', rec:d }; }).concat(list)
+      .sort(function(a,b){ return order[a.type] - order[b.type]; });
+    for(var i=0;i<all.length;i+=_BATCH_MAX){
+      var b = db.batch();
+      all.slice(i, i+_BATCH_MAX).forEach(function(x){ b.delete(db.collection(_collFor(x.type)).doc(x.rec.id)); });
+      await b.commit();
+    }
+    _oprSel.clear();
+    await loadAll();
+    alert('✓ Rejected ' + n + ' entr' + (n===1?'y':'ies') +
+          (kids.length ? ', plus ' + kids.length + ' pending deliver' + (kids.length===1?'y':'ies') + ' against the rejected deal' + (nd===1?'':'s') : '') + '.');
   }catch(e){ alert(fmtFirebaseError(e)); }
 }
 
